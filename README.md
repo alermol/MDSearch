@@ -1,2 +1,2 @@
 # MDSearch
-The repository contains script for identifying the minimum discriminatory set of SNPs for barcoding.
+The repository contains script for the **M**inimum **D**iscriminatory SNPs set **Search** for barcoding.
