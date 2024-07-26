@@ -4,8 +4,10 @@
 **M**inimum **D**iscriminatory SNPs set **Search**
 
 ## Table of contents
+- [How it works](#how-it-works)
 - [Requrements](#requirements)
 - [Installation](#installation)
+- [Usage](#usage)
 
 
 ## How it works
@@ -40,8 +42,10 @@ git clone https://github.com/alermol/MDSearch.git
 cd MDSearch/test
 make test
 ```
-
-MDSearch is ready to use.
+4. MDSearch is ready to use
+```bash
+python3 mdsearch.py -h
+```
 
 ## Usage
 ```
