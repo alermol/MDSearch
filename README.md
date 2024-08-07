@@ -61,5 +61,5 @@ optional arguments:
   -e STEPS    number of backward one-by-one elimination steps (default: 10000)
   -t TRIES    number of tries to find minimal SNP set (default: 1000)
   -c CPU      number of CPUs (default: 4)
-
+  -p          VCF is phased
 ```
