@@ -3,6 +3,8 @@ import numpy as np
 from multiprocessing import Pool
 from pathlib import Path
 
+import sys
+
 
 def parser_resolve_path(path):
     return Path(path).resolve()
@@ -111,20 +113,23 @@ class MDSearch:
         print("Primary SNP selection...")
 
         # identify primary set of SNPs
-        while self._calc_N_distinct(current_snps_geno) < self.target_gen_n:
-            parent_nodes_info = []
-            for s, g in self.snp_genotypes.items():
-                if s in current_snp_set:
-                    continue
-                else:
-                    maf = self._calculate_maf(g)
-                    snp_info = (s, maf)
-                    parent_nodes_info.append(snp_info)
-            current_snp = sorted(parent_nodes_info, key=lambda x: x[1], reverse=True)[
-                0
-            ][0]
-            current_snps_geno.append(self.snp_genotypes[current_snp])
-            current_snp_set.append(current_snp)
+        try:
+            while self._calc_N_distinct(current_snps_geno) < self.target_gen_n:
+                parent_nodes_info = []
+                for s, g in self.snp_genotypes.items():
+                    if s in current_snp_set:
+                        continue
+                    else:
+                        maf = self._calculate_maf(g)
+                        snp_info = (s, maf)
+                        parent_nodes_info.append(snp_info)
+                current_snp = sorted(
+                    parent_nodes_info, key=lambda x: x[1], reverse=True
+                )[0][0]
+                current_snps_geno.append(self.snp_genotypes[current_snp])
+                current_snp_set.append(current_snp)
+        except IndexError:
+            sys.exit("Not enough polymorphic SNP to discriminate samples. Exit.")
 
         print(f"After 1st step {len(current_snp_set)} primary SNP selected")
 
