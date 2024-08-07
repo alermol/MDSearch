@@ -10,7 +10,14 @@ def parser_resolve_path(path):
 
 class MDSearch:
     def __init__(
-        self, in_vcf, out_vcf, seed=None, elimination_steps=None, tries=None, ncups=None
+        self,
+        in_vcf,
+        out_vcf,
+        seed=None,
+        elimination_steps=None,
+        tries=None,
+        ncups=None,
+        phased=None,
     ):
         random.seed(seed)
         self.in_vcf = in_vcf
@@ -18,6 +25,7 @@ class MDSearch:
         self.elimination_steps = elimination_steps
         self.tries = tries
         self.ncups = ncups
+        self.phased = phased
 
         # calculate target number of genotypes and create list containing genotype for each SNP
         self.snp_genotypes = {}
@@ -30,10 +38,16 @@ class MDSearch:
                     continue
                 else:
                     snp_id = l.split("\t")[2]
-                    geno = [
-                        0 if i == "0/0" else 1 if i in ["1/0", "0/1"] else 2
-                        for i in l.split("\t")[9:]
-                    ]
+                    if self.phased:
+                        geno = [
+                            0 if i == "0|0" else 1 if i in ["1|0", "0|1"] else 2
+                            for i in l.split("\t")[9:]
+                        ]
+                    else:
+                        geno = [
+                            0 if i == "0/0" else 1 if i in ["1/0", "0/1"] else 2
+                            for i in l.split("\t")[9:]
+                        ]
                     self.snp_genotypes[snp_id] = geno
 
         self.main()
@@ -182,8 +196,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "-c", help="number of CPUs (default: 4)", default=4, type=int, metavar="CPU"
     )
+    parser.add_argument("-p", help="VCF is phased", action="store_true")
 
     args = parser.parse_args()
+
+    # print(args)
 
     MDSearch(
         in_vcf=args.ivcf,
@@ -192,4 +209,5 @@ if __name__ == "__main__":
         seed=args.s,
         ncups=args.c,
         tries=args.t,
+        phased=args.p,
     )
