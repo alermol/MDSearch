@@ -22,26 +22,29 @@ During this step, SNPs from the primary set are removed one-by-one, and the disc
 
 
 ## Requirements
-Tested using python 3.9.2.   
-Additional requirements: numpy
+File requirements.txt contains a list of all required packages for MDSearch.
 
 
 ## Installation
-1. Create conda enviroment with numpy and activate it
-```bash
-conda create -n mdsearch numpy
-conda activate mdsearch
-```
-2. Clone git repository
+1. Clone git repository
 ```bash
 git clone https://github.com/alermol/MDSearch.git
 ```
 
+2. Create conda enviroment and activate it
+```bash
+cd MDSearch
+conda create --name mdsearch --file requirements.txt
+conda activate mdsearch
+```
+
 3. (Optional) Run test
 ```bash
-cd MDSearch/test
+cd test
 make test
+make clean
 ```
+
 4. MDSearch is ready to use
 ```bash
 python3 mdsearch.py -h
@@ -49,7 +52,7 @@ python3 mdsearch.py -h
 
 ## Usage
 ```
-mdsearch.py [-h] [-s SEED] [-e STEPS] [-t TRIES] [-c CPU] ivcf ovcf
+mdsearch.py [-h] [-s SEED] [-e STEPS] [-t TRIES] [-c CPU] [-pl POLIDY] ivcf ovcf
 
 positional arguments:
   ivcf        input vcf file
@@ -61,5 +64,5 @@ optional arguments:
   -e STEPS    number of backward one-by-one elimination steps (default: 10000)
   -t TRIES    number of tries to find minimal SNP set (default: 1000)
   -c CPU      number of CPUs (default: 4)
-  -p          VCF is phased
+  -pl POLIDY  VCF ploidy (default: 2)
 ```
