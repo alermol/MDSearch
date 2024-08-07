@@ -19,7 +19,7 @@ class MDSearch:
         elimination_steps=None,
         tries=None,
         ncups=None,
-        phased=None,
+        ploidy=None,
     ):
         random.seed(seed)
         self.in_vcf = in_vcf
@@ -27,7 +27,7 @@ class MDSearch:
         self.elimination_steps = elimination_steps
         self.tries = tries
         self.ncups = ncups
-        self.phased = phased
+        self.ploidy = ploidy
 
         # calculate target number of genotypes and create list containing genotype for each SNP
         self.snp_genotypes = {}
@@ -40,30 +40,24 @@ class MDSearch:
                     continue
                 else:
                     snp_id = l.split("\t")[2]
-                    if self.phased:
-                        geno = [
-                            0 if i == "0|0" else 1 if i in ["1|0", "0|1"] else 2
-                            for i in l.split("\t")[9:]
-                        ]
-                    else:
-                        geno = [
-                            0 if i == "0/0" else 1 if i in ["1/0", "0/1"] else 2
-                            for i in l.split("\t")[9:]
-                        ]
+                    geno = l.split("\t")[9:]
                     self.snp_genotypes[snp_id] = geno
-
         self.main()
 
     @staticmethod
-    def _calculate_maf(geno: list):
-        homref = geno.count(0)
-        het = geno.count(1)
-        homalt = geno.count(2)
-        total_alleles = (homref * 2 + (0.5 * het)) + (homalt * 2 + (0.5 * het))
-        return min(
-            (homref * 2 + (0.5 * het)) / total_alleles,
-            (homalt * 2 + (0.5 * het)) / total_alleles,
-        )
+    def _calculate_maf(geno: list, ploidy: int):
+        geno = "".join(geno)
+        total_alleles = len(geno)
+        maf = 1 / ploidy
+        for i in range(ploidy):
+            if geno.count(str(i)) == 0:
+                continue
+            else:
+                if (geno.count(str(i)) / total_alleles) < maf:
+                    maf = geno.count(str(i)) / total_alleles
+                else:
+                    continue
+        return maf
 
     @staticmethod
     def _calc_N_distinct(snps: list):
@@ -76,9 +70,9 @@ class MDSearch:
         for sid, sg in self.snp_genotypes.items():
             if (snp_id is None) and (snp_maf is None):
                 snp_id = sid
-                snp_maf = self._calculate_maf(sg)
+                snp_maf = self._calculate_maf(sg, self.ploidy)
             else:
-                maf = self._calculate_maf(sg)
+                maf = self._calculate_maf(sg, self.ploidy)
                 if maf > snp_maf:
                     snp_id = sid
                     snp_maf = maf
@@ -120,7 +114,7 @@ class MDSearch:
                     if s in current_snp_set:
                         continue
                     else:
-                        maf = self._calculate_maf(g)
+                        maf = self._calculate_maf(g, self.ploidy)
                         snp_info = (s, maf)
                         parent_nodes_info.append(snp_info)
                 current_snp = sorted(
@@ -201,11 +195,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "-c", help="number of CPUs (default: 4)", default=4, type=int, metavar="CPU"
     )
-    parser.add_argument("-p", help="VCF is phased", action="store_true")
+    parser.add_argument(
+        "-pl", help="VCF ploidy (default: 2)", default=2, type=int, metavar="POLIDY"
+    )
 
     args = parser.parse_args()
-
-    # print(args)
 
     MDSearch(
         in_vcf=args.ivcf,
@@ -214,5 +208,5 @@ if __name__ == "__main__":
         seed=args.s,
         ncups=args.c,
         tries=args.t,
-        phased=args.p,
+        ploidy=args.pl,
     )
