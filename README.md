@@ -43,6 +43,7 @@ conda activate mdsearch
 cd test
 make test
 make clean
+cd ..
 ```
 
 4. MDSearch is ready to use
@@ -52,7 +53,7 @@ python3 mdsearch.py -h
 
 ## Usage
 ```
-mdsearch.py [-h] [-s SEED] [-e STEPS] [-t TRIES] [-c CPU] [-pl POLIDY] ivcf ovcf
+mdsearch.py [-h] [-s SEED] [-e STEPS] [-t TRIES] [-c CPU] [-pl PLOIDY] ivcf ovcf
 
 positional arguments:
   ivcf        input vcf file
@@ -64,5 +65,5 @@ optional arguments:
   -e STEPS    number of backward one-by-one elimination steps (default: 10000)
   -t TRIES    number of tries to find minimal SNP set (default: 1000)
   -c CPU      number of CPUs (default: 4)
-  -pl POLIDY  VCF ploidy (default: 2)
+  -pl PLOIDY  VCF ploidy (default: 2)
 ```

@@ -196,7 +196,7 @@ if __name__ == "__main__":
         "-c", help="number of CPUs (default: 4)", default=4, type=int, metavar="CPU"
     )
     parser.add_argument(
-        "-pl", help="VCF ploidy (default: 2)", default=2, type=int, metavar="POLIDY"
+        "-pl", help="VCF ploidy (default: 2)", default=2, type=int, metavar="PLOIDY"
     )
 
     args = parser.parse_args()
