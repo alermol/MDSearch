@@ -29,7 +29,9 @@ def main(ovcf, nsamples, nsnp, ploidy, phased):
             hom_gen = [(f"{str(i)}{sep}" * ploidy).strip(sep) for i in range(ploidy)]
             ov.write(
                 f"1\t{i + 1}\tSNP{i}\tA\tG\t60\tPASS\t.\tGT\t"
-                + "\t".join(random.choices(hom_gen, k=nsnp))
+                + "\t".join(
+                    random.choices(hom_gen + [(f".{sep}" * ploidy).strip(sep)], k=nsnp)
+                )
                 + "\n"
             )
 
