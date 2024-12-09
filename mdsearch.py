@@ -20,6 +20,7 @@ class MDSearch:
         tries=None,
         ncups=None,
         ploidy=None,
+        max_snps=None
     ):
         random.seed(seed)
         self.in_vcf = in_vcf
@@ -28,6 +29,7 @@ class MDSearch:
         self.tries = tries
         self.ncups = ncups
         self.ploidy = ploidy
+        self.max_snps = max_snps
 
         # calculate target number of genotypes and create list containing genotype for each SNP
         self.snp_genotypes = {}
@@ -171,7 +173,18 @@ class MDSearch:
                 ],
             )
         best_snp_set = min(res, key=len)
-        print(f"{len(best_snp_set)} SNPs selected. Done")
+        print(f"{len(best_snp_set)} discriminating SNPs selected.")
+
+        if self.max_snps > len(best_snp_set):
+            snp_maf = {sid: self._calculate_maf(
+                g, self.ploidy) for sid, g in self.snp_genotypes.items() if sid not in best_snp_set}
+            snp_pic = sorted([(sid, 1 - ((maf ** 2) + ((1 - maf) ** 2)),) for sid, maf in snp_maf.items()],
+                             key=lambda x: x[1])[::-1]
+            n_snps_to_add = self.max_snps - len(best_snp_set)
+            best_snp_set += [i[0] for i in snp_pic[:n_snps_to_add]]
+            print(f"{n_snps_to_add} SNPs added to set (total number of SNPs: {len(best_snp_set)}).")
+            return best_snp_set
+        print("Addition of SNPs to discriminating set is not required.")
         return best_snp_set
 
     def write_vcf(self, snp_list):
@@ -227,6 +240,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "-pl", help="VCF ploidy (default: 2)", default=2, type=int, metavar="PLOIDY"
     )
+    parser.add_argument(
+        "-ts", help="Total number of SNPs in output set (Default: minimal discriminative set)", default=0, type=int, metavar="TOTAL SNP"
+    )
 
     args = parser.parse_args()
 
@@ -238,4 +254,5 @@ if __name__ == "__main__":
         ncups=args.c,
         tries=args.t,
         ploidy=args.pl,
+        max_snps=args.ts
     )
