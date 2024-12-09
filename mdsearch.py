@@ -40,13 +40,20 @@ class MDSearch:
                     continue
                 else:
                     snp_id = l.split("\t")[2]
-                    geno = l.split("\t")[9:]
+                    geno = []
+                    for i in l.split("\t")[9:]:
+                        if (i == '0/0') | (i == '0|0'):
+                            geno.append(0)
+                        elif (i == '1/1') | (i == '1|1'):
+                            geno.append(1)
+                        else:
+                            geno.append(np.nan)
                     self.snp_genotypes[snp_id] = geno
         self.main()
 
     @staticmethod
     def _calculate_maf(geno: list, ploidy: int):
-        geno = "".join(geno)
+        geno = "".join([str(i) for i in geno])
         total_alleles = len(geno)
         maf = 1 / ploidy
         for i in range(ploidy):
@@ -61,8 +68,26 @@ class MDSearch:
 
     @staticmethod
     def _calc_N_distinct(snps: list):
-        g = np.unique(np.array([i for i in snps]), axis=1)
-        return g.shape[1]
+        print(
+            f'Calculate pairwise distance based on {len(snps)} SNPs...', end=' ')
+        snps_array = np.array([i for i in snps])
+        unique_columns = []
+        for i in range(snps_array.shape[1]):
+            is_unique = True
+            for j in range(snps_array.shape[1]):
+                if i != j:
+                    col_i = snps_array[:, i]
+                    col_j = snps_array[:, j]
+                    valid_mask = ~np.isnan(col_i) | ~np.isnan(col_j)
+                    distance = np.sum(
+                        np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
+                    if distance == 0:
+                        is_unique = False
+                        break
+            if is_unique:
+                unique_columns.append(snps_array[:, i])
+        print(f'{len(unique_columns)} samples.')
+        return len(unique_columns)
 
     def select_first_snp(self):
         # select SNP with max MAF
@@ -109,6 +134,8 @@ class MDSearch:
         # identify primary set of SNPs
         try:
             while self._calc_N_distinct(current_snps_geno) < self.target_gen_n:
+                print(
+                    f'Current SNP set contains {len(current_snp_set)} SNPs...')
                 parent_nodes_info = []
                 for s, g in self.snp_genotypes.items():
                     if s in current_snp_set:
@@ -169,8 +196,10 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("ivcf", help="input vcf file", type=parser_resolve_path)
-    parser.add_argument("ovcf", help="output vcf file", type=parser_resolve_path)
+    parser.add_argument("ivcf", help="input vcf file",
+                        type=parser_resolve_path)
+    parser.add_argument("ovcf", help="output vcf file",
+                        type=parser_resolve_path)
     parser.add_argument(
         "-s",
         help="random seed (default: 810491)",
