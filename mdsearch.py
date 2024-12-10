@@ -80,12 +80,12 @@ class MDSearch:
                 if i != j:
                     col_i = snps_array[:, i]
                     col_j = snps_array[:, j]
-                    valid_mask = ~np.isnan(col_i) | ~np.isnan(col_j)
+                    valid_mask = ~np.isnan(col_i) & ~np.isnan(col_j)
                     distance = np.sum(
                         np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
                     if distance == 0:
                         is_unique = False
-                    break
+                        break
             if is_unique:
                 unique_columns.append(snps_array[:, i])
         print(f'{len(unique_columns)} unique samples.')
@@ -109,6 +109,25 @@ class MDSearch:
 
     @staticmethod
     def worker(elimination_steps, snp_set, snp_genotypes, target_gen_n):
+        def _calc_N_distinct(snps: list):
+            snps_array = np.array([i for i in snps])
+            unique_columns = []
+            for i in range(snps_array.shape[1]):
+                is_unique = True
+                for j in range(snps_array.shape[1]):
+                    if i != j:
+                        col_i = snps_array[:, i]
+                        col_j = snps_array[:, j]
+                        valid_mask = ~np.isnan(col_i) & ~np.isnan(col_j)
+                        distance = np.sum(
+                            np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
+                        if distance == 0:
+                            is_unique = False
+                            break
+                if is_unique:
+                    unique_columns.append(snps_array[:, i])
+            return len(unique_columns)
+        
         tested_snp_set = snp_set.copy()
         for i in range(elimination_steps):
             snp_to_remove = random.choice(tested_snp_set)
@@ -116,7 +135,7 @@ class MDSearch:
             tested_geno = [
                 snp_genotypes[i] for i in tested_snp_set
             ]  # extract genotypes of new snp set
-            if np.unique(np.array(tested_geno), axis=1).shape[1] < target_gen_n:
+            if _calc_N_distinct(tested_geno) < target_gen_n:
                 tested_snp_set.append(snp_to_remove)
             else:
                 continue
