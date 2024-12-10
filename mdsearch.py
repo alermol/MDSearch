@@ -85,10 +85,10 @@ class MDSearch:
                         np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
                     if distance == 0:
                         is_unique = False
-                        break
+                    break
             if is_unique:
                 unique_columns.append(snps_array[:, i])
-        print(f'{len(unique_columns)} samples.')
+        print(f'{len(unique_columns)} unique samples.')
         return len(unique_columns)
 
     def select_first_snp(self):
