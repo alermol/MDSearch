@@ -20,7 +20,8 @@ class MDSearch:
         tries=None,
         ncups=None,
         ploidy=None,
-        max_snps=None
+        max_snps=None,
+        min_dist=None
     ):
         random.seed(seed)
         self.in_vcf = in_vcf
@@ -30,6 +31,7 @@ class MDSearch:
         self.ncups = ncups
         self.ploidy = ploidy
         self.max_snps = max_snps
+        self.min_dist = min_dist
 
         # calculate target number of genotypes and create list containing genotype for each SNP
         self.snp_genotypes = {}
@@ -69,27 +71,22 @@ class MDSearch:
         return maf
 
     @staticmethod
-    def _calc_N_distinct(snps: list):
+    def _calc_min_dist(snps: list):
         print(
             f'Calculate pairwise distance based on {len(snps)} SNPs...', end=' ')
         snps_array = np.array([i for i in snps])
-        unique_columns = []
-        for i in range(snps_array.shape[1]):
-            is_unique = True
-            for j in range(snps_array.shape[1]):
-                if i != j:
-                    col_i = snps_array[:, i]
-                    col_j = snps_array[:, j]
-                    valid_mask = ~np.isnan(col_i) & ~np.isnan(col_j)
-                    distance = np.sum(
-                        np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
-                    if distance == 0:
-                        is_unique = False
-                        break
-            if is_unique:
-                unique_columns.append(snps_array[:, i])
-        print(f'{len(unique_columns)} unique samples.')
-        return len(unique_columns)
+        n_samples = snps_array.shape[1]
+        distances = np.zeros((n_samples, n_samples), dtype=int)
+        for i in range(n_samples):
+            for j in range(n_samples):
+                col_i = snps_array[:, i]
+                col_j = snps_array[:, j]
+                valid_mask = ~np.isnan(col_i) & ~np.isnan(col_j)
+                distance = np.sum(np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
+                distances[i, j] = distance
+        res = min(distances[np.triu_indices(n_samples, k = 1)])
+        print(f'Minimal distance between samples: {res}')
+        return res
 
     def select_first_snp(self):
         # select SNP with max MAF
@@ -108,25 +105,20 @@ class MDSearch:
         return snp_id
 
     @staticmethod
-    def worker(elimination_steps, snp_set, snp_genotypes, target_gen_n):
-        def _calc_N_distinct(snps: list):
+    def worker(elimination_steps, snp_set, snp_genotypes, min_dist):
+        def _calc_min_dist(snps: list):
             snps_array = np.array([i for i in snps])
-            unique_columns = []
-            for i in range(snps_array.shape[1]):
-                is_unique = True
-                for j in range(snps_array.shape[1]):
-                    if i != j:
-                        col_i = snps_array[:, i]
-                        col_j = snps_array[:, j]
-                        valid_mask = ~np.isnan(col_i) & ~np.isnan(col_j)
-                        distance = np.sum(
-                            np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
-                        if distance == 0:
-                            is_unique = False
-                            break
-                if is_unique:
-                    unique_columns.append(snps_array[:, i])
-            return len(unique_columns)
+            n_samples = snps_array.shape[1]
+            distances = np.zeros((n_samples, n_samples), dtype=int)
+            for i in range(n_samples):
+                for j in range(n_samples):
+                    col_i = snps_array[:, i]
+                    col_j = snps_array[:, j]
+                    valid_mask = ~np.isnan(col_i) & ~np.isnan(col_j)
+                    distance = np.sum(np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
+                    distances[i, j] = distance
+            res = min(distances[np.triu_indices(n_samples, k = 1)])
+            return res
         
         tested_snp_set = snp_set.copy()
         for i in range(elimination_steps):
@@ -135,7 +127,7 @@ class MDSearch:
             tested_geno = [
                 snp_genotypes[i] for i in tested_snp_set
             ]  # extract genotypes of new snp set
-            if _calc_N_distinct(tested_geno) < target_gen_n:
+            if _calc_min_dist(tested_geno) < min_dist:
                 tested_snp_set.append(snp_to_remove)
             else:
                 continue
@@ -154,7 +146,7 @@ class MDSearch:
 
         # identify primary set of SNPs
         try:
-            while self._calc_N_distinct(current_snps_geno) < self.target_gen_n:
+            while self._calc_min_dist(current_snps_geno) < self.min_dist:
                 print(
                     f'Current SNP set contains {len(current_snp_set)} SNPs...')
                 parent_nodes_info = []
@@ -186,7 +178,7 @@ class MDSearch:
                         self.elimination_steps,
                         current_snp_set,
                         self.snp_genotypes,
-                        self.target_gen_n,
+                        self.min_dist,
                     )
                     for _ in range(self.tries)
                 ],
@@ -262,6 +254,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "-ts", help="Total number of SNPs in output set (Default: minimal discriminative set)", default=0, type=int, metavar="TOTAL SNP"
     )
+    parser.add_argument(
+        "-md", help="Minimal hamming distance between samples (Default: 1)", default=1, type=int, metavar="MIN DIST"
+    )
 
     args = parser.parse_args()
 
@@ -273,5 +268,6 @@ if __name__ == "__main__":
         ncups=args.c,
         tries=args.t,
         ploidy=args.pl,
-        max_snps=args.ts
+        max_snps=args.ts,
+        min_dist=args.md
     )
