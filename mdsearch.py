@@ -105,7 +105,7 @@ class MDSearch:
         return snp_id
 
     @staticmethod
-    def worker(elimination_steps, snp_set, snp_genotypes, min_dist):
+    def worker(elimination_steps, snp_set, snp_genotypes, min_dist, seed):
         def _calc_min_dist(snps: list):
             snps_array = np.array([i for i in snps])
             n_samples = snps_array.shape[1]
@@ -119,7 +119,8 @@ class MDSearch:
                     distances[i, j] = distance
             res = min(distances[np.triu_indices(n_samples, k = 1)])
             return res
-        
+
+        random.seed(seed)
         tested_snp_set = snp_set.copy()
         for i in range(elimination_steps):
             snp_to_remove = random.choice(tested_snp_set)
@@ -179,6 +180,7 @@ class MDSearch:
                         current_snp_set,
                         self.snp_genotypes,
                         self.min_dist,
+                        random.uniform(10000, 10000000)
                     )
                     for _ in range(self.tries)
                 ],
