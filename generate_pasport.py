@@ -66,6 +66,7 @@ def main(invcf,
          outfile,
          chr_recode_file,
          sample_recode_file):
+    print('Start working...')
     genotypes = vcf_to_json_transpose(invcf)
     if not sample_recode_file is None:
         genotypes = recode_samples(genotypes, sample_recode_file)
@@ -77,6 +78,7 @@ def main(invcf,
         for sample, genotype in genotypes.items():
             output.write(f'{sample}: ')
             output.write('; '.join([f'{i[0]}:{i[1]}({i[-1]})' for i in genotype]) + '\n')
+    print(f'Done. Output file: {outfile}')
 
 
 
