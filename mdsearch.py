@@ -2,6 +2,7 @@ import random
 import numpy as np
 from multiprocessing import Pool
 from pathlib import Path
+import re
 
 import sys
 
@@ -48,11 +49,11 @@ class MDSearch:
                     snp_id = l.split("\t")[2]
                     geno = []
                     for i in l.split("\t")[9:]:
-                        if (i == '0/0') | (i == '0|0'):
+                        if i.count('0') == self.ploidy:
                             geno.append(0)
-                        elif (i == '1/1') | (i == '1|1'):
+                        elif i.count(str(self.ploidy - 1)) == self.ploidy:
                             geno.append(1)
-                        elif (i == '1/0') | (i == '1|0') | (i == '0/1') | (i == '0|1'):
+                        elif len(set(re.findall(r'[0-9]+', i))) > 1:
                             if self.convert_het:
                                 geno.append(np.nan)
                             else:
@@ -110,6 +111,9 @@ class MDSearch:
                 else:
                     continue
         return snp_id
+
+    def is_het(self, genotype: str):
+        return len(set(re.findall(r'[0-9]+', genotype))) > 1
 
     @staticmethod
     def worker(elimination_steps, snp_set, snp_genotypes, min_dist, seed):
@@ -214,9 +218,16 @@ class MDSearch:
                     outvcf.write(l)
                 else:
                     line = l.strip().split("\t")
-                    if line[2] in snp_list:
+                    if (line[2] in snp_list) & self.convert_het:
+                        sep = '/' if '/' in line[9:][0] else '|'
+                        line = line[:9] + [(f'.{sep}' * self.ploidy).rstrip(sep) if self.is_het(i) else i for i in line[9:]]
+                        line = '\t'.join(line) + '\n'
+                        outvcf.write(line)
+                    elif (line[2] in snp_list) & (not self.convert_het):
                         outvcf.write(l)
-
+                    else:
+                        continue
+    
     def main(self):
         selected_snps = self.optimal_snp_set_search()
         print("Writing selected SNPs in VCF...")
@@ -267,7 +278,7 @@ if __name__ == "__main__":
         "-md", help="Minimal hamming distance between samples (Default: 1)", default=1, type=int, metavar="MIN DIST"
     )
     parser.add_argument(
-        "-cg", help="Convert heterozygous calls into NA", action='store_true', default=False
+        "-ch", help="Convert heterozygous calls into NA", action='store_true', default=False
     )
 
     args = parser.parse_args()
@@ -282,5 +293,5 @@ if __name__ == "__main__":
         ploidy=args.pl,
         max_snps=args.ts,
         min_dist=args.md,
-        convert_het=args.cg
+        convert_het=args.ch
     )
