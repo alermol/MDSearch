@@ -89,10 +89,12 @@ class MDSearch:
             for j in range(n_samples):
                 col_i = snps_array[:, i]
                 col_j = snps_array[:, j]
-                valid_mask = (~np.isnan(col_i) & ~np.isnan(col_j)) & (~np.equal(col_i, 2) & ~np.equal(col_j, 2))
-                distance = np.sum(np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
+                valid_mask = (~np.isnan(col_i) & ~np.isnan(col_j)) & (
+                    ~np.equal(col_i, 2) & ~np.equal(col_j, 2))
+                distance = np.sum(
+                    np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
                 distances[i, j] = distance
-        res = min(distances[np.triu_indices(n_samples, k = 1)])
+        res = min(distances[np.triu_indices(n_samples, k=1)])
         print(f'Minimal distance between samples: {res}')
         return res
 
@@ -125,10 +127,12 @@ class MDSearch:
                 for j in range(n_samples):
                     col_i = snps_array[:, i]
                     col_j = snps_array[:, j]
-                    valid_mask = (~np.isnan(col_i) & ~np.isnan(col_j)) & (~np.equal(col_i, 2) & ~np.equal(col_j, 2))
-                    distance = np.sum(np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
+                    valid_mask = (~np.isnan(col_i) & ~np.isnan(col_j)) & (
+                        ~np.equal(col_i, 2) & ~np.equal(col_j, 2))
+                    distance = np.sum(
+                        np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
                     distances[i, j] = distance
-            res = min(distances[np.triu_indices(n_samples, k = 1)])
+            res = min(distances[np.triu_indices(n_samples, k=1)])
             return res
 
         random.seed(seed)
@@ -206,7 +210,8 @@ class MDSearch:
                              key=lambda x: x[1])[::-1]
             n_snps_to_add = self.max_snps - len(best_snp_set)
             best_snp_set += [i[0] for i in snp_pic[:n_snps_to_add]]
-            print(f"{n_snps_to_add} SNPs added to set (total number of SNPs: {len(best_snp_set)}).")
+            print(
+                f"{n_snps_to_add} SNPs added to set (total number of SNPs: {len(best_snp_set)}).")
             return best_snp_set
         print("Addition of SNPs to discriminating set is not required.")
         return best_snp_set
@@ -220,14 +225,15 @@ class MDSearch:
                     line = l.strip().split("\t")
                     if (line[2] in snp_list) & self.convert_het:
                         sep = '/' if '/' in line[9:][0] else '|'
-                        line = line[:9] + [(f'.{sep}' * self.ploidy).rstrip(sep) if self.is_het(i) else i for i in line[9:]]
+                        line = line[:9] + [(f'.{sep}' * self.ploidy).rstrip(
+                            sep) if self.is_het(i) else i for i in line[9:]]
                         line = '\t'.join(line) + '\n'
                         outvcf.write(line)
                     elif (line[2] in snp_list) & (not self.convert_het):
                         outvcf.write(l)
                     else:
                         continue
-    
+
     def main(self):
         selected_snps = self.optimal_snp_set_search()
         print("Writing selected SNPs in VCF...")
