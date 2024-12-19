@@ -21,7 +21,8 @@ class MDSearch:
         ncups=None,
         ploidy=None,
         max_snps=None,
-        min_dist=None
+        min_dist=None,
+        convert_het=None
     ):
         random.seed(seed)
         self.in_vcf = in_vcf
@@ -32,6 +33,7 @@ class MDSearch:
         self.ploidy = ploidy
         self.max_snps = max_snps
         self.min_dist = min_dist
+        self.convert_het = convert_het
 
         # calculate target number of genotypes and create list containing genotype for each SNP
         self.snp_genotypes = {}
@@ -50,6 +52,11 @@ class MDSearch:
                             geno.append(0)
                         elif (i == '1/1') | (i == '1|1'):
                             geno.append(1)
+                        elif (i == '1/0') | (i == '1|0') | (i == '0/1') | (i == '0|1'):
+                            if self.convert_het:
+                                geno.append(np.nan)
+                            else:
+                                geno.append(2)
                         else:
                             geno.append(np.nan)
                     self.snp_genotypes[snp_id] = geno
@@ -81,7 +88,7 @@ class MDSearch:
             for j in range(n_samples):
                 col_i = snps_array[:, i]
                 col_j = snps_array[:, j]
-                valid_mask = ~np.isnan(col_i) & ~np.isnan(col_j)
+                valid_mask = (~np.isnan(col_i) & ~np.isnan(col_j)) & (~np.equal(col_i, 2) & ~np.equal(col_j, 2))
                 distance = np.sum(np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
                 distances[i, j] = distance
         res = min(distances[np.triu_indices(n_samples, k = 1)])
@@ -114,7 +121,7 @@ class MDSearch:
                 for j in range(n_samples):
                     col_i = snps_array[:, i]
                     col_j = snps_array[:, j]
-                    valid_mask = ~np.isnan(col_i) & ~np.isnan(col_j)
+                    valid_mask = (~np.isnan(col_i) & ~np.isnan(col_j)) & (~np.equal(col_i, 2) & ~np.equal(col_j, 2))
                     distance = np.sum(np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
                     distances[i, j] = distance
             res = min(distances[np.triu_indices(n_samples, k = 1)])
@@ -259,6 +266,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "-md", help="Minimal hamming distance between samples (Default: 1)", default=1, type=int, metavar="MIN DIST"
     )
+    parser.add_argument(
+        "-cg", help="Convert heterozygous calls into NA", action='store_true', default=False
+    )
 
     args = parser.parse_args()
 
@@ -271,5 +281,6 @@ if __name__ == "__main__":
         tries=args.t,
         ploidy=args.pl,
         max_snps=args.ts,
-        min_dist=args.md
+        min_dist=args.md,
+        convert_het=args.cg
     )
