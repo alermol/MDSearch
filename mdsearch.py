@@ -23,7 +23,8 @@ class MDSearch:
         ploidy=None,
         max_snps=None,
         min_dist=None,
-        convert_het=None
+        convert_het=None,
+        n_sets=None
     ):
         random.seed(seed)
         self.in_vcf = in_vcf
@@ -35,6 +36,7 @@ class MDSearch:
         self.max_snps = max_snps
         self.min_dist = min_dist
         self.convert_het = convert_het
+        self.n_sets = n_sets
 
         # calculate target number of genotypes and create list containing genotype for each SNP
         self.snp_genotypes = {}
@@ -147,7 +149,7 @@ class MDSearch:
                 tested_snp_set.append(snp_to_remove)
             else:
                 continue
-        return tested_snp_set
+        return tuple(tested_snp_set)
 
     def optimal_snp_set_search(self):
         current_snp_set = []
@@ -198,41 +200,48 @@ class MDSearch:
                         random.uniform(10000, 10000000)
                     )
                     for _ in range(self.tries)
-                ],
+                ]
             )
-        best_snp_set = min(res, key=len)
-        print(f"{len(best_snp_set)} discriminating SNPs selected.")
+        best_snp_sets = sorted(set([tuple(sorted(list(i))) for i in res]), key=len)[
+            :self.n_sets]
+        print(f"{len(best_snp_sets)} discriminating SNP sets selected.")
 
-        if self.max_snps > len(best_snp_set):
-            snp_maf = {sid: self._calculate_maf(
-                g, self.ploidy) for sid, g in self.snp_genotypes.items() if sid not in best_snp_set}
-            snp_pic = sorted([(sid, 1 - ((maf ** 2) + ((1 - maf) ** 2)),) for sid, maf in snp_maf.items()],
-                             key=lambda x: x[1])[::-1]
-            n_snps_to_add = self.max_snps - len(best_snp_set)
-            best_snp_set += [i[0] for i in snp_pic[:n_snps_to_add]]
-            print(
-                f"{n_snps_to_add} SNPs added to set (total number of SNPs: {len(best_snp_set)}).")
-            return best_snp_set
-        print("Addition of SNPs to discriminating set is not required.")
-        return best_snp_set
+        best_snp_sets_final = []
+        for si, s in enumerate(best_snp_sets, start=1):
+            if self.max_snps > len(s):
+                snp_maf = {sid: self._calculate_maf(
+                    g, self.ploidy) for sid, g in self.snp_genotypes.items() if sid not in s}
+                snp_pic = sorted([(sid, 1 - ((maf ** 2) + ((1 - maf) ** 2)),) for sid, maf in snp_maf.items()],
+                                 key=lambda x: x[1])[::-1]
+                n_snps_to_add = self.max_snps - len(s)
+                s += [i[0] for i in snp_pic[:n_snps_to_add]]
+                print(
+                    f"{n_snps_to_add} SNPs added to set {si} (total number of SNPs: {len(s)}).")
+                best_snp_sets_final.append(s)
+            else:
+                best_snp_sets_final.append(s)
+                print(
+                    f"Addition of SNPs to discriminating set {si} is not required (total number of SNPs: {len(s)}).")
+        return best_snp_sets_final
 
-    def write_vcf(self, snp_list):
-        with open(self.in_vcf) as invcf, open(self.out_vcf, "w") as outvcf:
-            for l in invcf.readlines():
-                if l.startswith("#"):
-                    outvcf.write(l)
-                else:
-                    line = l.strip().split("\t")
-                    if (line[2] in snp_list) & self.convert_het:
-                        sep = '/' if '/' in line[9:][0] else '|'
-                        line = line[:9] + [(f'.{sep}' * self.ploidy).rstrip(
-                            sep) if self.is_het(i) else i for i in line[9:]]
-                        line = '\t'.join(line) + '\n'
-                        outvcf.write(line)
-                    elif (line[2] in snp_list) & (not self.convert_het):
+    def write_vcf(self, snp_sets_list):
+        for si, s in enumerate(snp_sets_list, start=1):
+            with open(self.in_vcf) as invcf, open(f'{self.out_vcf}_{si}.vcf', "w") as outvcf:
+                for l in invcf.readlines():
+                    if l.startswith("#"):
                         outvcf.write(l)
                     else:
-                        continue
+                        line = l.strip().split("\t")
+                        if (line[2] in s) & self.convert_het:
+                            sep = '/' if '/' in line[9:][0] else '|'
+                            line = line[:9] + [(f'.{sep}' * self.ploidy).rstrip(
+                                sep) if self.is_het(i) else i for i in line[9:]]
+                            line = '\t'.join(line) + '\n'
+                            outvcf.write(line)
+                        elif (line[2] in s) & (not self.convert_het):
+                            outvcf.write(l)
+                        else:
+                            continue
 
     def main(self):
         selected_snps = self.optimal_snp_set_search()
@@ -248,7 +257,7 @@ if __name__ == "__main__":
 
     parser.add_argument("ivcf", help="input vcf file",
                         type=parser_resolve_path)
-    parser.add_argument("ovcf", help="output vcf file",
+    parser.add_argument("ovcf_prefix", help="prefix of output vcf file",
                         type=parser_resolve_path)
     parser.add_argument(
         "-s",
@@ -286,12 +295,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "-ch", help="Convert heterozygous calls into NA", action='store_true', default=False
     )
+    parser.add_argument(
+        "-ns", help="Number of distinct SNP sets in output (Default: 1)", default=1, type=int, metavar="N SETS"
+    )
 
     args = parser.parse_args()
 
     MDSearch(
         in_vcf=args.ivcf,
-        out_vcf=args.ovcf,
+        out_vcf=args.ovcf_prefix,
         elimination_steps=args.e,
         seed=args.s,
         ncups=args.c,
@@ -299,5 +311,6 @@ if __name__ == "__main__":
         ploidy=args.pl,
         max_snps=args.ts,
         min_dist=args.md,
-        convert_het=args.ch
+        convert_het=args.ch,
+        n_sets=args.ns
     )
