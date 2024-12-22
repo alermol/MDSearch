@@ -62,7 +62,7 @@ class MDSearch:
                                 geno.append(2)
                         else:
                             geno.append(np.nan)
-                    self.snp_genotypes[snp_id] = geno
+                    self.snp_genotypes[snp_id] = [geno, l.split("\t")[9:]]
         self.main()
 
     @staticmethod
@@ -106,9 +106,9 @@ class MDSearch:
         for sid, sg in self.snp_genotypes.items():
             if (snp_id is None) and (snp_maf is None):
                 snp_id = sid
-                snp_maf = self._calculate_maf(sg, self.ploidy)
+                snp_maf = self._calculate_maf(sg[1], self.ploidy)
             else:
-                maf = self._calculate_maf(sg, self.ploidy)
+                maf = self._calculate_maf(sg[1], self.ploidy)
                 if maf > snp_maf:
                     snp_id = sid
                     snp_maf = maf
@@ -143,7 +143,7 @@ class MDSearch:
             snp_to_remove = random.choice(tested_snp_set)
             tested_snp_set.remove(snp_to_remove)  # remove random snp
             tested_geno = [
-                snp_genotypes[i] for i in tested_snp_set
+                snp_genotypes[i][0] for i in tested_snp_set
             ]  # extract genotypes of new snp set
             if _calc_min_dist(tested_geno) < min_dist:
                 tested_snp_set.append(snp_to_remove)
@@ -157,7 +157,7 @@ class MDSearch:
 
         # choose first snp
         current_snp = self.select_first_snp()
-        current_snps_geno.append(self.snp_genotypes[current_snp])
+        current_snps_geno.append(self.snp_genotypes[current_snp][0])
         current_snp_set.append(current_snp)
 
         print("Primary SNP selection...")
@@ -172,13 +172,13 @@ class MDSearch:
                     if s in current_snp_set:
                         continue
                     else:
-                        maf = self._calculate_maf(g, self.ploidy)
+                        maf = self._calculate_maf(g[1], self.ploidy)
                         snp_info = (s, maf)
                         parent_nodes_info.append(snp_info)
                 current_snp = sorted(
                     parent_nodes_info, key=lambda x: x[1], reverse=True
                 )[0][0]
-                current_snps_geno.append(self.snp_genotypes[current_snp])
+                current_snps_geno.append(self.snp_genotypes[current_snp][0])
                 current_snp_set.append(current_snp)
         except IndexError:
             sys.exit("Not enough polymorphic SNP to discriminate samples. Exit.")
@@ -202,21 +202,21 @@ class MDSearch:
                     for _ in range(self.tries)
                 ]
             )
-        best_snp_sets = sorted(set([tuple(sorted(list(i))) for i in res]), key=len)[
-            :self.n_sets]
+        best_snp_sets = [list(i) for i in sorted(set([tuple(sorted(list(i))) for i in res]), key=len)[:self.n_sets]]
         print(f"{len(best_snp_sets)} discriminating SNP sets selected.")
 
         best_snp_sets_final = []
         for si, s in enumerate(best_snp_sets, start=1):
+            orig_snp_number = len(s)
             if self.max_snps > len(s):
                 snp_maf = {sid: self._calculate_maf(
-                    g, self.ploidy) for sid, g in self.snp_genotypes.items() if sid not in s}
+                    g[1], self.ploidy) for sid, g in self.snp_genotypes.items() if sid not in s}
                 snp_pic = sorted([(sid, 1 - ((maf ** 2) + ((1 - maf) ** 2)),) for sid, maf in snp_maf.items()],
                                  key=lambda x: x[1])[::-1]
                 n_snps_to_add = self.max_snps - len(s)
                 s += [i[0] for i in snp_pic[:n_snps_to_add]]
                 print(
-                    f"{n_snps_to_add} SNPs added to set {si} (total number of SNPs: {len(s)}).")
+                    f"{n_snps_to_add} SNPs added to set {si} (orignial set contains {orig_snp_number} SNPs, total number of SNPs: {len(s)}).")
                 best_snp_sets_final.append(s)
             else:
                 best_snp_sets_final.append(s)
