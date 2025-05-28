@@ -1,57 +1,60 @@
-# MDSearch
-**MDSearch** is a tool for a **M**inimum **D**iscriminatory SNPs set **Search**
+# **MDSearch**
+
+**MDSearch** (**M**inimum **D**iscriminatory SNPs set **Search**) is a Python script designed to identify minimal sets of Single Nucleotide Polymorphisms (SNPs) that can discriminate between samples in a VCF (Variant Call Format) file based on a specified minimum Hamming distance. The tool is particularly useful for applications such as genetic barcoding, sample identification, and quality control in genomic studies.
+
+## Description
+**Key features**
+* Correctly handles **missing genotypes** and **polyploid SNPs**
+* Customizable **minimal Hamming distance** between samples
+* Selects **core discriminatory SNP sets** and can **expand them** with additional polymorphic SNPs
+* Generates **multiple distinct SNP sets** for validation
+* Efficient **parallel processing** with multi-threading support
+* Flexible handling of **heterozygous calls** (convertible to NA)
 
 
-**Main features** of MDSearch:
-* MDSearch correctly handles **missing genotypes**
-* MDSearch allows you to customize **minimal distance** between samples in the selected SNPs set
-* MDSearch correctly handles **polyploid SNPs**
-* MDSearch allows you **to select the core SNPs set** (minimum discriminatory set), as well as **complement it** with additional polymorphic SNPs to the required amount
-* MDSearch allows you to select **the required number** of the best (minimal) SNP sets
-
-
-## Table of contents
-- [How it works](#how-it-works)
-- [Requrements](#requirements)
+## Table of Contents
+- [How It Works](#how-it-works)
+- [Requirements](#requirements)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Output](#output)
+- [Notes](#notes)
+- [License](#license)
 
 
 ## How it works
-MDSearch finds a minimum discriminatory set of SNPs of given samples in VCF file, prioritizing them based on MAF (minor allele frequency). More suitable (polymorphic) SNPs have MAF closer to 0.5.
+MDSearch employs a two-phase optimization approach:
 
-MDSearch performs in two main steps:
-1. ***Forward selection***    
-During this step, SNPs with the highest MAF are subsequently added to the discriminatory set until all samples become distinguishable with required minimal distance between samples.
-2. ***Backward selection (minimization)***    
-During this step, SNPs from the primary set are removed one-by-one, and the discriminatory ability of a new set is assessed. If the discriminatory ability of the reduced set (with required minimal distance between samples) disappears, the SNP is returned to the set, and the other SNP is removed.
+1. **Forward Selection Phase**  
+   Sequentially adds SNPs with highest Minor Allele Frequency (MAF) until all samples are distinguishable at the specified minimal Hamming distance. SNPs with MAF closest to 0.5 are prioritized for maximum discriminative power.
 
-Final MDS, if required, complemets with additional polymorphic SNPs (based on PIC) to the required size.
+2. **Backward Elimination Phase**  
+   Iteratively removes SNPs from the preliminary set while maintaining the required discriminative ability. Uses random elimination with multiple trials to find minimal sets.
+
+The final step optionally expands the minimal set with additional polymorphic SNPs (using Polymorphism Information Content, PIC) to reach a user-specified size.
 
 
 ## Requirements
-File requirements.txt contains a list of all required packages for MDSearch.
+- Python 3.x
+- NumPy
+- Standard Python libraries (multiprocessing, re, random, pathlib)
 
 
 ## Installation
-1. Clone git repository
 ```bash
 git clone https://github.com/alermol/MDSearch.git
-```
-
-2. Create conda enviroment and activate it
-```bash
 cd MDSearch
-conda create --name mdsearch --file requirements.txt
+conda create --name mdsearch python numpy
 conda activate mdsearch
 ```
 
-3. MDSearch is ready to use
+## Usage
+### Basic Command
 ```bash
-python3 mdsearch.py -h
+python mdsearch.py input.vcf output_prefix
 ```
 
-## Usage
+### Advanced Options
 ```bash
 usage: mdsearch.py [-h] [-s SEED] [-e STEPS] [-t TRIES] [-c CPU] [-pl PLOIDY] 
                    [-ts TOTAL SNP] [-md MIN DIST] [-ch] [-ns N SETS] ivcf ovcf_prefix
@@ -61,14 +64,55 @@ positional arguments:
   ovcf_prefix    prefix of output vcf file
 
 options:
-  -h, --help     show this help message and exit
-  -s SEED        random seed (default: 810491)
-  -e STEPS       number of backward one-by-one elimination steps (default: 10000)
-  -t TRIES       number of tries to find minimal SNP set (default: 1000)
-  -c CPU         number of CPUs (default: 4)
-  -pl PLOIDY     VCF ploidy (default: 2)
-  -ts TOTAL SNP  Total number of SNPs in output set (Default: minimal discriminative set)
-  -md MIN DIST   Minimal hamming distance between samples (Default: 1)
-  -ch            Convert heterozygous calls into NA
-  -ns N SETS     Number of distinct SNP sets in output (Default: 1)
+  -h, --help     Show help message
+  -s SEED        Random seed (default: 810491)
+  -e STEPS       Backward elimination steps (default: 10000)
+  -t TRIES       Attempts to find minimal set (default: 1000)
+  -c CPU         CPU cores to use (default: 4)
+  -pl PLOIDY     Sample ploidy (default: 2)
+  -ts TOTAL SNP  Total SNPs in output (minimal set)
+  -md MIN DIST   Minimal Hamming distance (default: 1)
+  -ch            Convert heterozygotes to NA
+  -ns N SETS     Number of output sets (default: 1)
 ```
+
+### Example
+```bash
+python mdsearch.py data.vcf results -s 42 -e 5000 -t 500 -c 8 -pl 2 -ts 50 -md 2 -ch -ns 3
+```
+
+This command will:
+- Use a random seed of 42
+- Perform 5000 elimination steps
+- Attempt 500 tries to find the minimal SNP set
+- Utilize 8 CPU cores
+- Assume a ploidy of 2
+- Expand the final SNP set to 50 SNPs
+- Ensure a minimum Hamming distance of 2 between samples
+- Convert heterozygous calls to NA
+- Generate 3 distinct SNP sets
+
+## Output
+Generates one or more VCF files containing only selected discriminative SNPs:
+- `results_1.vcf` (Minimal discriminative set)
+- `results_2.vcf` (Alternative minimal set)
+- `results_3.vcf` (Third alternative set)
+
+Each file maintains original VCF format while including only selected SNPs.
+
+Only `results_1.vcf` will be generated with `-ns 1` option.
+
+## Notes
+- Input VCF must contain SNP IDs in the third column (ID field)
+- For large datasets:
+  - Increase `-c` for more CPUs
+  - Higher `-e` values improve results but increase runtime
+- Use `-ch` when heterozygous calls shouldn't contribute to discrimination
+- Typical minimal distances:
+  - `-md 1` for basic discrimination
+  - `-md 2-3` for more robust discrimination
+- The script `generate_snp_pasport.py` in the `scripts` folder will generate a human-readable passport in the following format:
+  > sample_name: Chr:Coordinate(SNP_genotype); Chr:Coordinate(SNP_genotype); Chr:Coordinate(SNP_genotype)
+
+## License
+This project is open-source and available under the MIT License.
