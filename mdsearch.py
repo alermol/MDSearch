@@ -17,7 +17,6 @@ class MDSearch:
         in_vcf,
         out_vcf,
         seed=None,
-        elimination_steps=None,
         tries=None,
         ncups=None,
         ploidy=None,
@@ -29,7 +28,6 @@ class MDSearch:
         random.seed(seed)
         self.in_vcf = in_vcf
         self.out_vcf = out_vcf
-        self.elimination_steps = elimination_steps
         self.tries = tries
         self.ncups = ncups
         self.ploidy = ploidy
@@ -55,6 +53,8 @@ class MDSearch:
                             geno.append(0)
                         elif i.count('1') == self.ploidy:
                             geno.append(1)
+                        elif '.' in i:
+                            geno.append(np.nan)
                         else:
                             if self.convert_het:
                                 geno.append(np.nan)
@@ -117,7 +117,7 @@ class MDSearch:
         return len(set(re.findall(r'[0-9]+', genotype))) > 1
 
     @staticmethod
-    def worker(elimination_steps, snp_set, snp_genotypes, min_dist, seed):
+    def worker(snp_set, snp_genotypes, min_dist, seed):
         def _calc_min_dist(snps: list):
             snps_array = np.array([i for i in snps])
             n_samples = snps_array.shape[1]
@@ -135,7 +135,7 @@ class MDSearch:
 
         random.seed(seed)
         tested_snp_set = snp_set.copy()
-        for i in range(elimination_steps):
+        for i in range(len(snp_set)):
             snp_to_remove = random.choice(tested_snp_set)
             tested_snp_set.remove(snp_to_remove)  # remove random snp
             tested_geno = [
@@ -189,7 +189,6 @@ class MDSearch:
                 self.worker,
                 [
                     (
-                        self.elimination_steps,
                         current_snp_set,
                         self.snp_genotypes,
                         self.min_dist,
@@ -263,16 +262,9 @@ if __name__ == "__main__":
         metavar="SEED",
     )
     parser.add_argument(
-        "-e",
-        help="number of backward one-by-one elimination steps (default: 10000)",
-        type=int,
-        default=10000,
-        metavar="STEPS",
-    )
-    parser.add_argument(
         "-t",
-        help="number of tries to find minimal SNP set (default: 1000)",
-        default=1000,
+        help="number of tries to find minimal SNP set (default: 20)",
+        default=20,
         type=int,
         metavar="TRIES",
     )
@@ -300,7 +292,6 @@ if __name__ == "__main__":
     MDSearch(
         in_vcf=args.ivcf,
         out_vcf=args.ovcf_prefix,
-        elimination_steps=args.e,
         seed=args.s,
         ncups=args.c,
         tries=args.t,
