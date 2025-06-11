@@ -51,17 +51,15 @@ class MDSearch:
                     snp_id = l.split("\t")[2]
                     geno = []
                     for i in l.split("\t")[9:]:
-                        if i.count('0') == self.ploidy:
+                        if i.count('1') == 0:
                             geno.append(0)
-                        elif i.count(str(self.ploidy - 1)) == self.ploidy:
+                        elif i.count('1') == self.ploidy:
                             geno.append(1)
-                        elif len(set(re.findall(r'[0-9]+', i))) > 1:
+                        else:
                             if self.convert_het:
                                 geno.append(np.nan)
                             else:
-                                geno.append(2)
-                        else:
-                            geno.append(np.nan)
+                                geno.append(round(1 / i.count('1'), 4))
                     self.snp_genotypes[snp_id] = [geno, l.split("\t")[9:]]
         self.main()
 
@@ -91,8 +89,7 @@ class MDSearch:
             for j in range(n_samples):
                 col_i = snps_array[:, i]
                 col_j = snps_array[:, j]
-                valid_mask = (~np.isnan(col_i) & ~np.isnan(col_j)) & (
-                    ~np.equal(col_i, 2) & ~np.equal(col_j, 2))
+                valid_mask = (~np.isnan(col_i) & ~np.isnan(col_j))
                 distance = np.sum(
                     np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
                 distances[i, j] = distance
@@ -129,8 +126,7 @@ class MDSearch:
                 for j in range(n_samples):
                     col_i = snps_array[:, i]
                     col_j = snps_array[:, j]
-                    valid_mask = (~np.isnan(col_i) & ~np.isnan(col_j)) & (
-                        ~np.equal(col_i, 2) & ~np.equal(col_j, 2))
+                    valid_mask = (~np.isnan(col_i) & ~np.isnan(col_j))
                     distance = np.sum(
                         np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
                     distances[i, j] = distance
