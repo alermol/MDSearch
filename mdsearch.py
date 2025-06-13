@@ -6,7 +6,6 @@ import re
 
 import sys
 
-
 def parser_resolve_path(path):
     return Path(path).resolve()
 
@@ -84,14 +83,13 @@ class MDSearch:
             f'Calculate pairwise distance based on {len(snps)} SNPs...', end=' ')
         snps_array = np.array([i for i in snps])
         n_samples = snps_array.shape[1]
-        distances = np.zeros((n_samples, n_samples), dtype=int)
+        distances = np.zeros((n_samples, n_samples), dtype=float)
         for i in range(n_samples):
             for j in range(n_samples):
                 col_i = snps_array[:, i]
                 col_j = snps_array[:, j]
                 valid_mask = (~np.isnan(col_i) & ~np.isnan(col_j))
-                distance = np.sum(
-                    np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
+                distance = np.nansum(col_i[valid_mask] != col_j[valid_mask])
                 distances[i, j] = distance
         res = min(distances[np.triu_indices(n_samples, k=1)])
         print(f'Minimal distance between samples: {res}')
@@ -121,14 +119,13 @@ class MDSearch:
         def _calc_min_dist(snps: list):
             snps_array = np.array([i for i in snps])
             n_samples = snps_array.shape[1]
-            distances = np.zeros((n_samples, n_samples), dtype=int)
+            distances = np.zeros((n_samples, n_samples), dtype=float)
             for i in range(n_samples):
                 for j in range(n_samples):
                     col_i = snps_array[:, i]
                     col_j = snps_array[:, j]
                     valid_mask = (~np.isnan(col_i) & ~np.isnan(col_j))
-                    distance = np.sum(
-                        np.array(col_i[valid_mask]) != np.array(col_j[valid_mask]))
+                    distance = np.nansum(col_i[valid_mask] != col_j[valid_mask])
                     distances[i, j] = distance
             res = min(distances[np.triu_indices(n_samples, k=1)])
             return res
