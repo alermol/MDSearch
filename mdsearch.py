@@ -3,6 +3,7 @@ import numpy as np
 from multiprocessing import Pool
 from pathlib import Path
 import re
+from statistics import mean, median
 
 import sys
 
@@ -93,9 +94,9 @@ class MDSearch:
                 valid_mask = (~np.isnan(col_i) & ~np.isnan(col_j))
                 distance = np.nansum(col_i[valid_mask] != col_j[valid_mask])
                 distances[i, j] = distance
-        res = min(distances[np.triu_indices(n_samples, k=1)])
-        print(f'Minimal distance between samples: {res}')
-        return res
+        res = distances[np.triu_indices(n_samples, k=1)]
+        print(f'Distance between samples (min/med/avg/max): {min(res)}/{median(res)}/{round(mean(res), 1)}/{max(res)}')
+        return min(res)
 
     def select_first_snp(self):
         # select SNP with max MAF
