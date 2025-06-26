@@ -48,34 +48,34 @@ class MDSearch:
                     snp_id = l.split("\t")[2]
                     geno = []
                     for i in l.split("\t")[9:]:
-                        if i.count('1') == 0:
+                        if '.' in i:
+                            geno.append(np.nan)
+                        elif i.count('1') == 0:
                             geno.append(0)
                         elif i.count('1') == self.ploidy:
                             geno.append(1)
-                        elif '.' in i:
-                            geno.append(np.nan)
                         else:
                             if self.convert_het:
                                 geno.append(np.nan)
                             else:
-                                geno.append(round(1 / i.count('1'), 4))
+                                geno.append(i.count('1') / self.ploidy)
                     self.snp_genotypes[snp_id] = [geno, l.split("\t")[9:]]
         self.main()
 
     @staticmethod
     def _calculate_maf(geno: list, ploidy: int):
-        geno = "".join([str(i) for i in geno])
-        total_alleles = len(geno)
-        maf = 1 / ploidy
-        for i in range(ploidy):
-            if geno.count(str(i)) == 0:
-                continue
+        total_alleles = len(geno) * 2
+        allele0 = 0
+        allele1 = 0
+        for i in geno:
+            if i == 0:
+                allele0 += ploidy
+            elif i == 1:
+                allele1 += ploidy
             else:
-                if (geno.count(str(i)) / total_alleles) < maf:
-                    maf = geno.count(str(i)) / total_alleles
-                else:
-                    continue
-        return maf
+                allele1 += i * ploidy
+                allele0 += ploidy - (i * ploidy)
+        return min(allele0 / total_alleles, allele1 / total_alleles)
 
     @staticmethod
     def _calc_min_dist(snps: list):
@@ -101,9 +101,9 @@ class MDSearch:
         for sid, sg in self.snp_genotypes.items():
             if (snp_id is None) and (snp_maf is None):
                 snp_id = sid
-                snp_maf = self._calculate_maf(sg[1], self.ploidy)
+                snp_maf = self._calculate_maf(sg[0], self.ploidy)
             else:
-                maf = self._calculate_maf(sg[1], self.ploidy)
+                maf = self._calculate_maf(sg[0], self.ploidy)
                 if maf > snp_maf:
                     snp_id = sid
                     snp_maf = maf
@@ -165,7 +165,7 @@ class MDSearch:
                     if s in current_snp_set:
                         continue
                     else:
-                        maf = self._calculate_maf(g[1], self.ploidy)
+                        maf = self._calculate_maf(g[0], self.ploidy)
                         snp_info = (s, maf)
                         parent_nodes_info.append(snp_info)
                 current_snp = sorted(
