@@ -66,7 +66,7 @@ class MDSearch:
 
     @staticmethod
     def _calculate_maf(geno: list, ploidy: int):
-        total_alleles = len(geno) * 2
+        total_alleles = len(geno) * ploidy
         allele0 = 0
         allele1 = 0
         for i in geno:
