@@ -48,7 +48,9 @@ class MDSearch:
                     snp_id = l.split("\t")[2]
                     geno = []
                     for i in l.split("\t")[9:]:
-                        if '.' in i:
+                        if any(list(j > 1 for j in list(int(g) for g in re.findall(r'[0-9]+', i)))):
+                            sys.exit('Detected multiallelic sites. Filter or split them.')
+                        elif '.' in i:
                             geno.append(np.nan)
                         elif i.count('1') == 0:
                             geno.append(0)
