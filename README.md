@@ -23,6 +23,15 @@
 
 
 ## How it works
+
+⚠️ **Important Notes**    
+SNPs in the input VCF must be properly filtered before being processed with MDSearch. Typical steps include:
+- Removing or splitting multiallelic sites.
+- Removing SNPs with at least one missing genotype (optional, as MDSearch correctly handles missing data).
+- Removing SNPs with MAF (Minor Allele Frequency) ≤ 10%.
+- Removing SNPs with excessive heterozygosity.
+- Performing LD pruning.
+
 MDSearch employs a two-phase optimization approach:
 
 1. **Forward Selection Phase**  
