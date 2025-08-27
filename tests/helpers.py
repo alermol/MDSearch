@@ -47,7 +47,11 @@ def write_vcf(path: Path, samples: List[str], variants: List[Dict]):
     with open(path, "w") as f:
         f.write("##fileformat=VCFv4.2\n")
         f.write("##source=mdsearch-tests\n")
-        f.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + "\t".join(samples) + "\n")
+        f.write(
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
+            + "\t".join(samples)
+            + "\n"
+        )
         for v in variants:
             line = [
                 v.get("chrom", "1"),
@@ -81,13 +85,14 @@ def genotype_to_value(geno: str, ploidy: int, convert_het: bool):
     return np.nan if convert_het else count_alt / float(ploidy)
 
 
-def parse_matrix_for_distance(vcf_path: Path, ploidy: int, convert_het: bool) -> List[np.ndarray]:
+def parse_matrix_for_distance(
+    vcf_path: Path, ploidy: int, convert_het: bool
+) -> List[np.ndarray]:
     """Return list of arrays (variants x samples) with numeric genotypes like MDSearch uses."""
     matrices: List[np.ndarray] = []
     with open(vcf_path) as f:
         for line in f:
             if line.startswith("#"):
-                header = line
                 continue
             parts = line.rstrip().split("\t")
             genos = parts[9:]
@@ -96,7 +101,9 @@ def parse_matrix_for_distance(vcf_path: Path, ploidy: int, convert_het: bool) ->
     return matrices
 
 
-def calculate_min_hamming_distance(vcf_path: Path, ploidy: int, convert_het: bool) -> int:
+def calculate_min_hamming_distance(
+    vcf_path: Path, ploidy: int, convert_het: bool
+) -> int:
     matrices = parse_matrix_for_distance(vcf_path, ploidy, convert_het)
     if not matrices:
         return 0
@@ -107,7 +114,7 @@ def calculate_min_hamming_distance(vcf_path: Path, ploidy: int, convert_het: boo
         for j in range(n_samples):
             col_i = snps_array[:, i]
             col_j = snps_array[:, j]
-            valid_mask = (~np.isnan(col_i) & ~np.isnan(col_j))
+            valid_mask = ~np.isnan(col_i) & ~np.isnan(col_j)
             distance = np.nansum(col_i[valid_mask] != col_j[valid_mask])
             distances[i, j] = distance
     tri = distances[np.triu_indices(n_samples, k=1)]
@@ -124,9 +131,13 @@ def get_snp_ids(vcf_path: Path) -> List[str]:
     return ids
 
 
-def assert_discriminative(vcf_path: Path, ploidy: int, min_dist: int, convert_het: bool):
+def assert_discriminative(
+    vcf_path: Path, ploidy: int, min_dist: int, convert_het: bool
+):
     observed = calculate_min_hamming_distance(vcf_path, ploidy, convert_het)
-    assert observed >= min_dist, f"Min Hamming distance {observed} < required {min_dist}"
+    assert (
+        observed >= min_dist
+    ), f"Min Hamming distance {observed} < required {min_dist}"
 
 
 def save_out_prefix_vcfs(out_prefix: Path, subdir: str = ""):
@@ -138,5 +149,3 @@ def save_out_prefix_vcfs(out_prefix: Path, subdir: str = ""):
     stem = out_prefix.name
     for vcf in out_dir.glob(f"{stem}_*.vcf"):
         save_artifact(vcf, subdir=subdir)
-
-

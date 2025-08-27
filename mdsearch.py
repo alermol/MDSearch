@@ -1,17 +1,28 @@
 import random
-import numpy as np
-from multiprocessing import Pool
 from pathlib import Path
 import re
+import sys
 from statistics import mean, median
 
-import sys
+import numpy as np
+from itertools import combinations
+from math import floor
 
-def parser_resolve_path(path):
+
+def parser_resolve_path(path: str) -> Path:
+    """Resolve CLI-provided path string to an absolute Path."""
     return Path(path).resolve()
 
 
 class MDSearch:
+    """Search for minimal SNP sets that discriminate samples.
+
+    The algorithm builds a primary set by greedily maximizing MAF, then
+    prunes it by deterministic elimination while maintaining a minimal
+    Hamming distance between all sample pairs. Multiple alternative sets
+    can be generated with optional overlap constraints.
+    """
+
     def __init__(
         self,
         in_vcf,
@@ -44,39 +55,50 @@ class MDSearch:
         if (self.overlap_max_number is not None and self.overlap_max_number >= 0) and (
             self.overlap_max_fraction is not None and self.overlap_max_fraction >= 0
         ):
-            sys.exit("Specify only one of -oMx (max overlap number) or -oMf (max overlap fraction), not both.")
+            sys.exit(
+                "Specify only one of -oMx (max overlap number) or -oMf "
+                "(max overlap fraction), not both."
+            )
 
         # calculate target number of genotypes and create list containing genotype for each SNP
         self.snp_genotypes = {}
         with open(self.in_vcf) as vcf:
-            for l in vcf.readlines():
-                l = l.strip()
-                if l.startswith("#CHROM"):
-                    self.target_gen_n = len(l.split("\t")[9:])
-                elif l.startswith("#"):
+            for vcf_line in vcf.readlines():
+                vcf_line = vcf_line.strip()
+                if vcf_line.startswith("#CHROM"):
+                    self.target_gen_n = len(vcf_line.split("\t")[9:])
+                elif vcf_line.startswith("#"):
                     continue
                 else:
-                    snp_id = l.split("\t")[2]
+                    snp_id = vcf_line.split("\t")[2]
                     geno = []
-                    for i in l.split("\t")[9:]:
-                        if any(list(j > 1 for j in list(int(g) for g in re.findall(r'[0-9]+', i)))):
-                            sys.exit('Detected multiallelic sites. Filter or split them.')
-                        elif '.' in i:
+                    for i in vcf_line.split("\t")[9:]:
+                        if any(
+                            list(
+                                j > 1
+                                for j in list(int(g) for g in re.findall(r"[0-9]+", i))
+                            )
+                        ):
+                            sys.exit(
+                                "Detected multiallelic sites. Filter or split them."
+                            )
+                        elif "." in i:
                             geno.append(np.nan)
-                        elif i.count('1') == 0:
+                        elif i.count("1") == 0:
                             geno.append(0)
-                        elif i.count('1') == self.ploidy:
+                        elif i.count("1") == self.ploidy:
                             geno.append(1)
                         else:
                             if self.convert_het:
                                 geno.append(np.nan)
                             else:
-                                geno.append(i.count('1') / self.ploidy)
-                    self.snp_genotypes[snp_id] = [geno, l.split("\t")[9:]]
+                                geno.append(i.count("1") / self.ploidy)
+                    self.snp_genotypes[snp_id] = [geno, vcf_line.split("\t")[9:]]
         self.main()
 
     @staticmethod
-    def _calculate_maf(geno: list, ploidy: int):
+    def _calculate_maf(geno: list, ploidy: int) -> float:
+        """Compute minor allele frequency for a SNP given numeric genotypes."""
         allele0 = 0.0
         allele1 = 0.0
         valid_genotypes = 0
@@ -97,9 +119,9 @@ class MDSearch:
         return min(allele0 / total_alleles, allele1 / total_alleles)
 
     @staticmethod
-    def _calc_min_dist(snps: list):
-        print(
-            f'Calculate pairwise distance based on {len(snps)} SNPs...', end=' ')
+    def _calc_min_dist(snps: list) -> float:
+        """Return minimal pairwise Hamming distance across samples for given SNPs."""
+        print(f"Calculate pairwise distance based on {len(snps)} SNPs...", end=" ")
         snps_array = np.array([i for i in snps])
         n_samples = snps_array.shape[1]
         distances = np.zeros((n_samples, n_samples), dtype=float)
@@ -107,14 +129,18 @@ class MDSearch:
             for j in range(n_samples):
                 col_i = snps_array[:, i]
                 col_j = snps_array[:, j]
-                valid_mask = (~np.isnan(col_i) & ~np.isnan(col_j))
+                valid_mask = ~np.isnan(col_i) & ~np.isnan(col_j)
                 distance = np.nansum(col_i[valid_mask] != col_j[valid_mask])
                 distances[i, j] = distance
         res = distances[np.triu_indices(n_samples, k=1)]
-        print(f'Distance between samples (min/med/avg/max): {min(res)}/{median(res)}/{round(mean(res), 1)}/{max(res)}')
+        print(
+            "Distance between samples (min/med/avg/max): "
+            f"{min(res)}/{median(res)}/{round(mean(res), 1)}/{max(res)}"
+        )
         return min(res)
 
-    def select_first_snp(self, excluded: set | None = None):
+    def select_first_snp(self, excluded: set | None = None) -> str:
+        """Select SNP with highest MAF not in excluded; tie-break by SNP ID."""
         # select SNP with max MAF; deterministic tie-breaker by SNP ID asc
         excluded = excluded or set()
         candidates = []
@@ -128,10 +154,12 @@ class MDSearch:
         candidates.sort(key=lambda x: (-x[1], x[0]))
         return candidates[0][0]
 
-    def is_het(self, genotype: str):
-        return len(set(re.findall(r'[0-9]+', genotype))) > 1
+    def is_het(self, genotype: str) -> bool:
+        """Return True if genotype string represents a heterozygous call."""
+        return len(set(re.findall(r"[0-9]+", genotype))) > 1
 
     def _calc_min_dist_for_set_ids(self, snp_ids: list[str]) -> float:
+        """Helper computing minimal distance for a list of SNP IDs."""
         if not snp_ids:
             return 0.0
         genos = [self.snp_genotypes[sid][0] for sid in snp_ids]
@@ -141,6 +169,7 @@ class MDSearch:
         pass
 
     def _build_primary_set(self, excluded: set | None = None) -> list[str]:
+        """Greedily build initial SNP set maximizing MAF under exclusions."""
         excluded = excluded or set()
         current_snp_set: list[str] = []
         current_snps_geno = []
@@ -154,8 +183,7 @@ class MDSearch:
 
         # identify primary set of SNPs deterministically with tie-breakers
         while self._calc_min_dist(current_snps_geno) < self.min_dist:
-            print(
-                f'Current SNP set contains {len(current_snp_set)} SNPs...')
+            print(f"Current SNP set contains {len(current_snp_set)} SNPs...")
             parent_nodes_info = []
             for s, g in self.snp_genotypes.items():
                 if (s in current_snp_set) or (s in excluded):
@@ -163,7 +191,9 @@ class MDSearch:
                 maf = self._calculate_maf(g[0], self.ploidy)
                 parent_nodes_info.append((s, maf))
             if not parent_nodes_info:
-                raise MDSearch.BuildError("Not enough polymorphic SNP to discriminate samples.")
+                raise MDSearch.BuildError(
+                    "Not enough polymorphic SNP to discriminate samples."
+                )
             # Sort by MAF desc, SNP ID asc
             parent_nodes_info.sort(key=lambda x: (-x[1], x[0]))
             current_snp = parent_nodes_info[0][0]
@@ -174,6 +204,7 @@ class MDSearch:
         return current_snp_set
 
     def _deterministic_eliminate(self, snp_set: list[str]) -> list[str]:
+        """Greedy backward elimination preserving minimal distance constraint."""
         print("Backward one-by-one elimination (deterministic)...")
         # Greedy removal in stable order (SNP ID asc)
         optimized = list(snp_set)
@@ -183,7 +214,8 @@ class MDSearch:
                 optimized = trial
         return optimized
 
-    def optimal_snp_set_search(self):
+    def optimal_snp_set_search(self) -> list[list[str]]:
+        """Find up to n_sets minimal discriminating SNP lists under constraints."""
         # Base minimal set
         try:
             base_primary = self._build_primary_set(excluded=set())
@@ -204,15 +236,22 @@ class MDSearch:
         add_set(base_minimal)
 
         # Determine allowed maximum overlap (default = no cap)
-        from math import floor
-        allowed_max_num = self.overlap_max_number if (self.overlap_max_number is not None and self.overlap_max_number >= 0) else len(base_minimal)
-        allowed_max_frac = floor(self.overlap_max_fraction * len(base_minimal)) if (self.overlap_max_fraction is not None and self.overlap_max_fraction >= 0) else len(base_minimal)
+        allowed_max_num = (
+            self.overlap_max_number
+            if (self.overlap_max_number is not None and self.overlap_max_number >= 0)
+            else len(base_minimal)
+        )
+        allowed_max_frac = (
+            floor(self.overlap_max_fraction * len(base_minimal))
+            if (
+                self.overlap_max_fraction is not None and self.overlap_max_fraction >= 0
+            )
+            else len(base_minimal)
+        )
         allowed_max = min(allowed_max_num, allowed_max_frac)
 
         # If we need to cap overlap, exclude combinations of base SNPs to achieve it
-        from itertools import combinations
         exclude_size = max(1, len(base_minimal) - allowed_max)
-        tried = 0
         for excl in combinations(sorted(base_minimal), exclude_size):
             try:
                 alt_primary = self._build_primary_set(excluded=set(excl))
@@ -224,7 +263,6 @@ class MDSearch:
                 add_set(alt_minimal)
             if len(unique_sets) >= self.n_sets:
                 break
-            tried += 1
         # Fallback: if no cap requested (allowed_max equals base size), use single exclusions
         if len(unique_sets) < self.n_sets and allowed_max >= len(base_minimal):
             for sid in sorted(base_minimal):
@@ -246,41 +284,67 @@ class MDSearch:
         for si, s in enumerate(unique_sets[: self.n_sets], start=1):
             orig_snp_number = len(s)
             if self.max_snps > len(s):
-                snp_maf = {sid: self._calculate_maf(
-                    g[0], self.ploidy) for sid, g in self.snp_genotypes.items() if sid not in s}
-                snp_pic = sorted([(sid, 1 - ((maf ** 2) + ((1 - maf) ** 2)),) for sid, maf in snp_maf.items()],
-                                 key=lambda x: x[1])[::-1]
+                snp_maf = {
+                    sid: self._calculate_maf(g[0], self.ploidy)
+                    for sid, g in self.snp_genotypes.items()
+                    if sid not in s
+                }
+                snp_pic = sorted(
+                    [
+                        (
+                            sid,
+                            1 - ((maf**2) + ((1 - maf) ** 2)),
+                        )
+                        for sid, maf in snp_maf.items()
+                    ],
+                    key=lambda x: x[1],
+                )[::-1]
                 n_snps_to_add = self.max_snps - len(s)
                 s = list(s) + [i[0] for i in snp_pic[:n_snps_to_add]]
                 print(
-                    f"{n_snps_to_add} SNPs added to set {si} (orignial set contains {orig_snp_number} SNPs, total number of SNPs: {len(s)}).")
+                    f"{n_snps_to_add} SNPs added to set {si} "
+                    f"(original set contains {orig_snp_number} SNPs, "
+                    f"total number of SNPs: {len(s)})."
+                )
                 best_snp_sets_final.append(s)
             else:
                 best_snp_sets_final.append(list(s))
                 print(
-                    f"Addition of SNPs to discriminating set {si} is not required (total number of SNPs: {len(s)}).")
+                    f"Addition of SNPs to discriminating set {si} "
+                    f"is not required (total number of SNPs: {len(s)})."
+                )
         return best_snp_sets_final
 
-    def write_vcf(self, snp_sets_list):
+    def write_vcf(self, snp_sets_list: list[list[str]]) -> None:
+        """Write each SNP set to a separate VCF suffixed by index starting at 1."""
         for si, s in enumerate(snp_sets_list, start=1):
-            with open(self.in_vcf) as invcf, open(f'{self.out_vcf}_{si}.vcf', "w") as outvcf:
-                for l in invcf.readlines():
-                    if l.startswith("#"):
-                        outvcf.write(l)
+            with open(self.in_vcf) as invcf, open(
+                f"{self.out_vcf}_{si}.vcf", "w"
+            ) as outvcf:
+                for vcf_line in invcf.readlines():
+                    if vcf_line.startswith("#"):
+                        outvcf.write(vcf_line)
                     else:
-                        line = l.strip().split("\t")
-                        if (line[2] in s) & self.convert_het:
-                            sep = '/' if '/' in line[9:][0] else '|'
-                            line = line[:9] + [(f'.{sep}' * self.ploidy).rstrip(
-                                sep) if self.is_het(i) else i for i in line[9:]]
-                            line = '\t'.join(line) + '\n'
+                        line = vcf_line.strip().split("\t")
+                        if (line[2] in s) and self.convert_het:
+                            sep = "/" if "/" in line[9:][0] else "|"
+                            line = line[:9] + [
+                                (
+                                    (f".{sep}" * self.ploidy).rstrip(sep)
+                                    if self.is_het(i)
+                                    else i
+                                )
+                                for i in line[9:]
+                            ]
+                            line = "\t".join(line) + "\n"
                             outvcf.write(line)
-                        elif (line[2] in s) & (not self.convert_het):
-                            outvcf.write(l)
+                        elif (line[2] in s) and (not self.convert_het):
+                            outvcf.write(vcf_line)
                         else:
                             continue
 
-    def main(self):
+    def main(self) -> None:
+        """Entrypoint: search optimal SNP sets and write them to VCF files."""
         selected_snps = self.optimal_snp_set_search()
         print("Writing selected SNPs in VCF...")
         self.write_vcf(selected_snps)
@@ -292,10 +356,16 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("ivcf", help="input vcf file",
-                        type=parser_resolve_path)
-    parser.add_argument("ovcf_prefix", help="prefix of output vcf file",
-                        type=parser_resolve_path)
+    parser.add_argument(
+        "ivcf",
+        help="input vcf file",
+        type=parser_resolve_path,
+    )
+    parser.add_argument(
+        "ovcf_prefix",
+        help="prefix of output vcf file",
+        type=parser_resolve_path,
+    )
     parser.add_argument(
         "-s",
         help="random seed (default: 810491)",
@@ -317,22 +387,53 @@ if __name__ == "__main__":
         "-pl", help="VCF ploidy (default: 2)", default=2, type=int, metavar="PLOIDY"
     )
     parser.add_argument(
-        "-ts", help="Total number of SNPs in output set (Default: minimal discriminative set)", default=0, type=int, metavar="TOTAL SNP"
+        "-ts",
+        help=(
+            "Total number of SNPs in output set (Default: minimal discriminative set)"
+        ),
+        default=0,
+        type=int,
+        metavar="TOTAL SNP",
     )
     parser.add_argument(
-        "-md", help="Minimal hamming distance between samples (Default: 1)", default=1, type=int, metavar="MIN DIST"
+        "-md",
+        help="Minimal hamming distance between samples (Default: 1)",
+        default=1,
+        type=int,
+        metavar="MIN DIST",
     )
     parser.add_argument(
-        "-ch", help="Convert heterozygous calls into NA", action='store_true', default=False
+        "-ch",
+        help="Convert heterozygous calls into NA",
+        action="store_true",
+        default=False,
     )
     parser.add_argument(
-        "-ns", help="Number of distinct SNP sets in output (Default: 1)", default=1, type=int, metavar="N SETS"
+        "-ns",
+        help="Number of distinct SNP sets in output (Default: 1)",
+        default=1,
+        type=int,
+        metavar="N SETS",
     )
     parser.add_argument(
-        "-oMx", help="Maximum overlap number with base minimal set for alternative sets (Default: unlimited)", default=-1, type=int, metavar="OVERLAP MAX N"
+        "-oMx",
+        help=(
+            "Maximum overlap number with base minimal set for alternative sets "
+            "(Default: unlimited)"
+        ),
+        default=-1,
+        type=int,
+        metavar="OVERLAP MAX N",
     )
     parser.add_argument(
-        "-oMf", help="Maximum overlap fraction with base minimal set for alternative sets (Default: unlimited)", default=-1.0, type=float, metavar="OVERLAP MAX FRAC"
+        "-oMf",
+        help=(
+            "Maximum overlap fraction with base minimal set for alternative sets "
+            "(Default: unlimited)"
+        ),
+        default=-1.0,
+        type=float,
+        metavar="OVERLAP MAX FRAC",
     )
 
     args = parser.parse_args()
@@ -347,7 +448,7 @@ if __name__ == "__main__":
         max_snps=args.ts,
         min_dist=args.md,
         convert_het=args.ch,
-        n_sets=args.ns
-        , overlap_max_number=args.oMx
-        , overlap_max_fraction=args.oMf
+        n_sets=args.ns,
+        overlap_max_number=args.oMx,
+        overlap_max_fraction=args.oMf,
     )
