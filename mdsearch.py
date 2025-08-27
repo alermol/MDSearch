@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 import sys
 from statistics import mean, median
 
@@ -59,6 +58,32 @@ class MDSearch:
         if self.n_sets is None or self.n_sets < 1:
             sys.exit("-ns (number of sets) must be >= 1")
 
+        # Helpers to parse FORMAT and GT subfield
+        def _extract_gt(format_field: str, sample_field: str) -> str:
+            keys = format_field.split(":") if format_field else []
+            if "GT" not in keys:
+                return "."
+            gt_index = keys.index("GT")
+            parts = sample_field.split(":")
+            return parts[gt_index] if gt_index < len(parts) else "."
+
+        def _gt_to_value(gt: str, ploidy: int, convert_het: bool) -> float:
+            if "." in gt:
+                return np.nan
+            tokens = [t for t in gt.replace("|", "/").split("/") if t != ""]
+            try:
+                alleles = [int(x) for x in tokens]
+            except ValueError:
+                return np.nan
+            if len(alleles) == 1 and ploidy == 1:
+                return float(alleles[0])
+            count_alt = sum(1 for x in alleles if x == 1)
+            if count_alt == 0:
+                return 0.0
+            if count_alt == ploidy:
+                return 1.0
+            return np.nan if convert_het else count_alt / float(ploidy)
+
         # calculate target number of genotypes and create list containing genotype for each SNP
         self.snp_genotypes = {}
         seen_ids: set[str] = set()
@@ -68,7 +93,8 @@ class MDSearch:
                 if vcf_line.startswith("#"):
                     continue
                 else:
-                    snp_id = vcf_line.split("\t")[2]
+                    parts = vcf_line.split("\t")
+                    snp_id = parts[2]
                     if (not snp_id) or (snp_id == "."):
                         sys.exit(
                             "Missing or placeholder SNP ID detected. Ensure IDs are present and non-'.'."
@@ -78,29 +104,30 @@ class MDSearch:
                             f"Duplicate SNP ID detected: {snp_id}. Ensure SNP IDs are unique."
                         )
                     seen_ids.add(snp_id)
-                    geno = []
-                    for i in vcf_line.split("\t")[9:]:
-                        if any(
-                            list(
-                                j > 1
-                                for j in list(int(g) for g in re.findall(r"[0-9]+", i))
-                            )
-                        ):
+                    # ALT-based multiallelic detection (comma indicates >1 ALT allele)
+                    alt_field = parts[4] if len(parts) > 4 else ""
+                    if "," in alt_field:
+                        sys.exit("Detected multiallelic sites. Filter or split them.")
+                    format_field = parts[8] if len(parts) > 8 else "GT"
+                    sample_fields = parts[9:]
+                    geno: list[float] = []
+                    for sample_field in sample_fields:
+                        gt = _extract_gt(format_field, sample_field)
+                        # Detect multiallelic allele indices in GT
+                        try:
+                            alleles = [
+                                int(x)
+                                for x in gt.replace("|", "/").split("/")
+                                if x not in ("", ".")
+                            ]
+                        except ValueError:
+                            alleles = []
+                        if any(a > 1 for a in alleles):
                             sys.exit(
                                 "Detected multiallelic sites. Filter or split them."
                             )
-                        elif "." in i:
-                            geno.append(np.nan)
-                        elif i.count("1") == 0:
-                            geno.append(0)
-                        elif i.count("1") == self.ploidy:
-                            geno.append(1)
-                        else:
-                            if self.convert_het:
-                                geno.append(np.nan)
-                            else:
-                                geno.append(i.count("1") / self.ploidy)
-                    self.snp_genotypes[snp_id] = [geno, vcf_line.split("\t")[9:]]
+                        geno.append(_gt_to_value(gt, self.ploidy, self.convert_het))
+                    self.snp_genotypes[snp_id] = [geno, sample_fields]
         self.main()
 
     @staticmethod
@@ -161,9 +188,12 @@ class MDSearch:
         candidates.sort(key=lambda x: (-x[1], x[0]))
         return candidates[0][0]
 
-    def is_het(self, genotype: str) -> bool:
-        """Return True if genotype string represents a heterozygous call."""
-        return len(set(re.findall(r"[0-9]+", genotype))) > 1
+    def is_het(self, gt: str) -> bool:
+        """Return True if GT subfield represents a heterozygous call."""
+        if not gt or gt == ".":
+            return False
+        alleles = [a for a in gt.replace("|", "/").split("/") if a != ""]
+        return len(set(alleles)) > 1
 
     def _calc_min_dist_for_set_ids(self, snp_ids: list[str]) -> float:
         """Helper computing minimal distance for a list of SNP IDs."""
@@ -334,17 +364,40 @@ class MDSearch:
                     else:
                         line = vcf_line.strip().split("\t")
                         if (line[2] in s) and self.convert_het:
-                            sep = "/" if "/" in line[9:][0] else "|"
-                            line = line[:9] + [
-                                (
-                                    (f".{sep}" * self.ploidy).rstrip(sep)
-                                    if self.is_het(i)
-                                    else i
+                            format_field = line[8] if len(line) > 8 else "GT"
+                            keys = format_field.split(":") if format_field else []
+                            gt_index = keys.index("GT") if "GT" in keys else -1
+                            # Determine separator from first sample's GT
+                            first_gt = None
+                            if gt_index >= 0 and len(line) > 9:
+                                first_parts = line[9].split(":")
+                                if gt_index < len(first_parts):
+                                    first_gt = first_parts[gt_index]
+                            sep = "/" if (first_gt and "/" in first_gt) else "|"
+                            missing_gt = (
+                                sep.join(["."] * self.ploidy)
+                                if (self.ploidy and self.ploidy > 1)
+                                else "."
+                            )
+                            new_samples = []
+                            for sample_field in line[9:]:
+                                if gt_index == -1:
+                                    new_samples.append(sample_field)
+                                    continue
+                                parts = sample_field.split(":")
+                                gt_val = (
+                                    parts[gt_index] if gt_index < len(parts) else "."
                                 )
-                                for i in line[9:]
-                            ]
-                            line = "\t".join(line) + "\n"
-                            outvcf.write(line)
+                                if self.is_het(gt_val):
+                                    if gt_index < len(parts):
+                                        parts[gt_index] = missing_gt
+                                        new_samples.append(":".join(parts))
+                                    else:
+                                        new_samples.append(sample_field)
+                                else:
+                                    new_samples.append(sample_field)
+                            line = line[:9] + new_samples
+                            outvcf.write("\t".join(line) + "\n")
                         elif (line[2] in s) and (not self.convert_het):
                             outvcf.write(vcf_line)
                         else:

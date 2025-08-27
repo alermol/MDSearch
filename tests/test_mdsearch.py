@@ -963,3 +963,145 @@ def test_triploid_ploidy_handling_with_mixed_genotypes(tmp_path: Path):
     produced = out_prefix.with_name(out_prefix.name + "_1.vcf")
     assert produced.exists()
     assert_discriminative(produced, ploidy=3, min_dist=1, convert_het=False)
+
+
+def _write_multifield_vcf(path: Path, samples: list[str], variants: list[dict]):
+    """Write a VCF with FORMAT=GT:DP:GQ and sample fields accordingly."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        f.write("##fileformat=VCFv4.2\n")
+        f.write("##source=mdsearch-tests\n")
+        f.write(
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
+            + "\t".join(samples)
+            + "\n"
+        )
+        for v in variants:
+            fmt = "GT:DP:GQ"
+            sample_cols = [
+                f"{gt}:{dp}:{gq}" for gt, dp, gq in zip(v["gts"], v["dps"], v["gqs"])
+            ]
+            line = [
+                v.get("chrom", "1"),
+                str(v.get("pos", 1)),
+                v["id"],
+                v.get("ref", "A"),
+                v.get("alt", "T"),
+                ".",
+                "PASS",
+                ".",
+                fmt,
+            ] + sample_cols
+            f.write("\t".join(line) + "\n")
+
+
+def test_gt_only_parsing_with_multifield_format(tmp_path: Path):
+    samples = ["S1", "S2", "S3", "S4"]
+    variants = [
+        {
+            "chrom": "1",
+            "pos": 100,
+            "id": "A",
+            "ref": "A",
+            "alt": "T",
+            "gts": ["0/0", "0/0", "1/1", "1/1"],
+            "dps": [5, 7, 9, 11],
+            "gqs": [50, 60, 70, 80],
+        },
+        {
+            "chrom": "1",
+            "pos": 200,
+            "id": "B",
+            "ref": "A",
+            "alt": "T",
+            "gts": ["0/0", "1/1", "0/0", "1/1"],
+            "dps": [6, 8, 10, 12],
+            "gqs": [55, 65, 75, 85],
+        },
+        # Noise with het and missing GTs but with DP/GQ present
+        {
+            "chrom": "1",
+            "pos": 300,
+            "id": "N",
+            "ref": "A",
+            "alt": "T",
+            "gts": ["0/1", "./.", "0/1", "./."],
+            "dps": [3, 0, 4, 0],
+            "gqs": [20, 0, 25, 0],
+        },
+    ]
+    orig = tmp_path / "orig_multifield.vcf"
+    _write_multifield_vcf(orig, samples, variants)
+    out_prefix = tmp_path / "out_multifield"
+    run_mdsearch(orig, out_prefix, ploidy=2, total_snps=0, min_dist=1, n_sets=1)
+    produced = out_prefix.with_name(out_prefix.name + "_1.vcf")
+    assert produced.exists()
+    assert_discriminative(produced, ploidy=2, min_dist=1, convert_het=False)
+    assert set(get_snp_ids(produced)) == {"A", "B"}
+
+
+def test_writer_preserves_format_and_replaces_only_gt_on_ch(tmp_path: Path):
+    samples = ["S1", "S2", "S3", "S4"]
+    # Core discriminators Z1,Z2 homozygous; P has hets and should be included via expansion
+    variants = [
+        {
+            "chrom": "1",
+            "pos": 210,
+            "id": "Z1",
+            "ref": "A",
+            "alt": "T",
+            "gts": ["0/0", "0/0", "1/1", "1/1"],
+            "dps": [10, 11, 12, 13],
+            "gqs": [90, 91, 92, 93],
+        },
+        {
+            "chrom": "1",
+            "pos": 220,
+            "id": "Z2",
+            "ref": "A",
+            "alt": "T",
+            "gts": ["0/0", "1/1", "0/0", "1/1"],
+            "dps": [14, 15, 16, 17],
+            "gqs": [94, 95, 96, 97],
+        },
+        {
+            "chrom": "1",
+            "pos": 150,
+            "id": "P",
+            "ref": "A",
+            "alt": "T",
+            "gts": ["0/1", "0/1", "1/1", "0/0"],
+            "dps": [21, 22, 23, 24],
+            "gqs": [70, 71, 72, 73],
+        },
+    ]
+    orig = tmp_path / "orig_multifield_ch.vcf"
+    _write_multifield_vcf(orig, samples, variants)
+    out_prefix = tmp_path / "out_multifield_ch"
+    run_mdsearch(
+        orig,
+        out_prefix,
+        ploidy=2,
+        total_snps=3,
+        min_dist=1,
+        convert_het=True,
+        n_sets=1,
+    )
+    produced = out_prefix.with_name(out_prefix.name + "_1.vcf")
+    assert produced.exists()
+    # Validate DP/GQ preserved while GT for hets becomes ./.
+    text = Path(produced).read_text().splitlines()
+    records = [line for line in text if not line.startswith("#")]
+    # Find record P
+    p = [line for line in records if line.split("\t")[2] == "P"][0]
+    cols = p.split("\t")
+    assert cols[8] == "GT:DP:GQ"
+    # Sample 1 and 2 were hets in input → should be converted to ./.
+    s1 = cols[9].split(":")
+    s2 = cols[10].split(":")
+    assert s1[0] == "./." and int(s1[1]) == 21 and int(s1[2]) == 70
+    assert s2[0] == "./." and int(s2[1]) == 22 and int(s2[2]) == 71
+    # For a homozygous sample (S3), GT stays and DP/GQ preserved
+    s3 = cols[11].split(":")
+    assert s3[0] == "1/1" and int(s3[1]) == 23 and int(s3[2]) == 72

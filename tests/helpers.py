@@ -88,16 +88,30 @@ def genotype_to_value(geno: str, ploidy: int, convert_het: bool):
 def parse_matrix_for_distance(
     vcf_path: Path, ploidy: int, convert_het: bool
 ) -> List[np.ndarray]:
-    """Return list of arrays (variants x samples) with numeric genotypes like MDSearch uses."""
+    """Return list of arrays (variants x samples) with numeric genotypes like MDSearch uses.
+
+    Supports both simple FORMAT with GT only and multi-field FORMAT like GT:DP:GQ by
+    extracting only the GT subfield per sample.
+    """
     matrices: List[np.ndarray] = []
     with open(vcf_path) as f:
         for line in f:
             if line.startswith("#"):
                 continue
             parts = line.rstrip().split("\t")
-            genos = parts[9:]
-            values = [genotype_to_value(g, ploidy, convert_het) for g in genos]
-            matrices.append(np.array(values, dtype=float))
+            format_field = parts[8] if len(parts) > 8 else "GT"
+            keys = format_field.split(":") if format_field else []
+            gt_index = keys.index("GT") if "GT" in keys else -1
+            sample_fields = parts[9:]
+            gt_values = []
+            for sf in sample_fields:
+                if gt_index == -1:
+                    gt = sf
+                else:
+                    sub = sf.split(":")
+                    gt = sub[gt_index] if gt_index < len(sub) else "."
+                gt_values.append(genotype_to_value(gt, ploidy, convert_het))
+            matrices.append(np.array(gt_values, dtype=float))
     return matrices
 
 
