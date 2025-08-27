@@ -88,7 +88,7 @@ class MDSearch:
         self.snp_genotypes = {}
         seen_ids: set[str] = set()
         with open(self.in_vcf) as vcf:
-            for vcf_line in vcf.readlines():
+            for vcf_line in vcf:
                 vcf_line = vcf_line.strip()
                 if vcf_line.startswith("#"):
                     continue
@@ -358,7 +358,7 @@ class MDSearch:
             with open(self.in_vcf) as invcf, open(
                 f"{self.out_vcf}_{si}.vcf", "w"
             ) as outvcf:
-                for vcf_line in invcf.readlines():
+                for vcf_line in invcf:
                     if vcf_line.startswith("#"):
                         outvcf.write(vcf_line)
                     else:
