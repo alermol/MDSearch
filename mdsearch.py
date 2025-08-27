@@ -1,6 +1,6 @@
 from pathlib import Path
 import sys
-from statistics import mean, median
+
 
 import numpy as np
 from itertools import combinations
@@ -154,24 +154,33 @@ class MDSearch:
 
     @staticmethod
     def _calc_min_dist(snps: list) -> float:
-        """Return minimal pairwise Hamming distance across samples for given SNPs."""
+        """Return minimal pairwise Hamming distance across samples for given SNPs.
+
+        Optimized: compute only upper-triangle pairwise distances (j > i) and avoid
+        self-pairs. Uses vectorized comparisons per anchor column.
+        """
         print(f"Calculate pairwise distance based on {len(snps)} SNPs...", end=" ")
-        snps_array = np.array([i for i in snps])
-        n_samples = snps_array.shape[1]
-        distances = np.zeros((n_samples, n_samples), dtype=float)
-        for i in range(n_samples):
-            for j in range(n_samples):
-                col_i = snps_array[:, i]
-                col_j = snps_array[:, j]
-                valid_mask = ~np.isnan(col_i) & ~np.isnan(col_j)
-                distance = np.nansum(col_i[valid_mask] != col_j[valid_mask])
-                distances[i, j] = distance
-        res = distances[np.triu_indices(n_samples, k=1)]
+        snps_array = np.array([i for i in snps])  # shape: (num_snps, num_samples)
+        num_samples = snps_array.shape[1]
+        pairwise_distances: list[float] = []
+        if num_samples <= 1:
+            print("Distance between samples (min/med/avg/max): 0/0/0/0")
+            return 0.0
+        for i in range(num_samples - 1):
+            col_i = snps_array[:, i][:, None]  # (num_snps, 1)
+            rest = snps_array[:, i + 1 :]  # (num_snps, num_samples - i - 1)
+            if rest.shape[1] == 0:
+                continue
+            valid_mask = (~np.isnan(col_i)) & (~np.isnan(rest))
+            diffs = (col_i != rest) & valid_mask
+            dists = diffs.sum(axis=0).astype(float)  # per pair distances vs column i
+            pairwise_distances.extend(dists.tolist())
+        res = np.array(pairwise_distances, dtype=float)
         print(
             "Distance between samples (min/med/avg/max): "
-            f"{min(res)}/{median(res)}/{round(mean(res), 1)}/{max(res)}"
+            f"{np.min(res)}/{np.median(res)}/{round(float(np.mean(res)), 1)}/{np.max(res)}"
         )
-        return min(res)
+        return float(np.min(res))
 
     def select_first_snp(self, excluded: set | None = None) -> str:
         """Select SNP with highest MAF not in excluded; tie-break by SNP ID."""
