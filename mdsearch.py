@@ -86,6 +86,7 @@ class MDSearch:
 
         # calculate target number of genotypes and create list containing genotype for each SNP
         self.snp_genotypes = {}
+        self.snp_maf_cache: dict[str, float] = {}
         seen_ids: set[str] = set()
         with open(self.in_vcf) as vcf:
             for vcf_line in vcf:
@@ -128,6 +129,10 @@ class MDSearch:
                             )
                         geno.append(_gt_to_value(gt, self.ploidy, self.convert_het))
                     self.snp_genotypes[snp_id] = [geno, sample_fields]
+                    # Cache MAF for this SNP
+                    self.snp_maf_cache[snp_id] = MDSearch._calculate_maf(
+                        self.snp_genotypes[snp_id][0], self.ploidy
+                    )
         self.main()
 
     @staticmethod
@@ -190,7 +195,7 @@ class MDSearch:
         for sid, sg in self.snp_genotypes.items():
             if sid in excluded:
                 continue
-            maf = self._calculate_maf(sg[0], self.ploidy)
+            maf = self.snp_maf_cache.get(sid, 0.0)
             candidates.append((sid, maf))
         if not candidates:
             sys.exit("No SNPs available for selection after exclusions.")
@@ -234,7 +239,7 @@ class MDSearch:
             for s, g in self.snp_genotypes.items():
                 if (s in current_snp_set) or (s in excluded):
                     continue
-                maf = self._calculate_maf(g[0], self.ploidy)
+                maf = self.snp_maf_cache.get(s, 0.0)
                 parent_nodes_info.append((s, maf))
             if not parent_nodes_info:
                 raise MDSearch.BuildError(
@@ -331,8 +336,8 @@ class MDSearch:
             orig_snp_number = len(s)
             if self.max_snps > len(s):
                 snp_maf = {
-                    sid: self._calculate_maf(g[0], self.ploidy)
-                    for sid, g in self.snp_genotypes.items()
+                    sid: self.snp_maf_cache[sid]
+                    for sid in self.snp_genotypes
                     if sid not in s
                 }
                 snp_pic = sorted(
