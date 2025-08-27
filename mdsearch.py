@@ -255,15 +255,61 @@ class MDSearch:
         return current_snp_set
 
     def _deterministic_eliminate(self, snp_set: list[str]) -> list[str]:
-        """Greedy backward elimination preserving minimal distance constraint."""
+        """Greedy backward elimination preserving minimal distance constraint.
+
+        Optimized to avoid repeated distance recomputation by precomputing per-SNP
+        contributions to pairwise distances across the upper triangle and updating
+        totals incrementally when SNPs are removed.
+        """
         print("Backward one-by-one elimination (deterministic)...")
+
+        optimized_ids: list[str] = list(snp_set)
+        # Build matrix (rows=SNPs, cols=samples) in current order
+        snps_matrix = np.array([self.snp_genotypes[sid][0] for sid in optimized_ids])
+        num_snps, num_samples = snps_matrix.shape
+
+        # Precompute per-row contributions to upper-triangle pairwise distances
+        pair_contribs: list[np.ndarray] = []
+        for r in range(num_snps):
+            row = snps_matrix[r, :]
+            row_contrib_parts: list[np.ndarray] = []
+            for i in range(num_samples - 1):
+                vi = row[i]
+                rest = row[i + 1 :]
+                vi_col = np.full(rest.shape, vi)
+                valid = (~np.isnan(vi_col)) & (~np.isnan(rest))
+                diffs = (vi_col != rest) & valid
+                row_contrib_parts.append(diffs.astype(np.int32))
+            if row_contrib_parts:
+                row_contrib = np.concatenate(row_contrib_parts)
+            else:
+                row_contrib = np.zeros(0, dtype=np.int32)
+            pair_contribs.append(row_contrib)
+        if pair_contribs:
+            contrib_matrix = np.vstack(pair_contribs)  # shape: (num_snps, num_pairs)
+            current_pair_dists = contrib_matrix.sum(axis=0).astype(np.int32)
+        else:
+            contrib_matrix = np.zeros((0, 0), dtype=np.int32)
+            current_pair_dists = np.zeros(0, dtype=np.int32)
+
         # Greedy removal in stable order (SNP ID asc)
-        optimized = list(snp_set)
-        for sid in sorted(list(optimized)):
-            trial = [x for x in optimized if x != sid]
-            if self._calc_min_dist_for_set_ids(trial) >= self.min_dist:
-                optimized = trial
-        return optimized
+        for sid in sorted(list(optimized_ids)):
+            # Skip if sid already removed
+            if sid not in optimized_ids:
+                continue
+            idx = optimized_ids.index(sid)
+            # Compute distances if this SNP is removed
+            candidate_pair_dists = current_pair_dists - contrib_matrix[idx]
+            if (
+                candidate_pair_dists.size == 0
+                or candidate_pair_dists.min() >= self.min_dist
+            ):
+                # Accept removal: update state
+                optimized_ids.pop(idx)
+                current_pair_dists = candidate_pair_dists
+                if contrib_matrix.size:
+                    contrib_matrix = np.delete(contrib_matrix, idx, axis=0)
+        return optimized_ids
 
     def optimal_snp_set_search(self) -> list[list[str]]:
         """Find up to n_sets minimal discriminating SNP lists under constraints."""
