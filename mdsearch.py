@@ -1,5 +1,8 @@
 from pathlib import Path
 import sys
+import logging
+import time
+import json
 
 
 import numpy as np
@@ -32,6 +35,10 @@ class MDSearch:
         n_sets=None,
         overlap_max_number: int = -1,
         overlap_max_fraction: float = -1.0,
+        verbose: bool = True,
+        log_level: str | None = None,
+        log_format: str = "text",
+        summary_tsv: Path | None = None,
     ):
         self.in_vcf = in_vcf
         self.out_vcf = out_vcf
@@ -42,6 +49,36 @@ class MDSearch:
         self.n_sets = n_sets
         self.overlap_max_number = overlap_max_number
         self.overlap_max_fraction = overlap_max_fraction
+        self.verbose = verbose
+        self.summary_tsv = Path(summary_tsv) if summary_tsv else None
+        # Configure logger
+        self.logger = logging.getLogger("mdsearch")
+        # Avoid duplicate handlers if multiple instances
+        if not self.logger.handlers:
+            handler = logging.StreamHandler()
+            if log_format == "json":
+
+                class JsonFormatter(logging.Formatter):
+                    def format(self, record: logging.LogRecord) -> str:  # type: ignore[override]
+                        payload: dict = {
+                            "level": record.levelname,
+                            "message": record.getMessage(),
+                            "time": time.strftime(
+                                "%Y-%m-%dT%H:%M:%SZ", time.gmtime(record.created)
+                            ),
+                        }
+                        # If message is JSON-like string, keep it as message
+                        return json.dumps(payload, ensure_ascii=False)
+
+                handler.setFormatter(JsonFormatter())
+            else:
+                handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
+            self.logger.addHandler(handler)
+            self.logger.propagate = False
+        # Determine level
+        level_name = (log_level or ("INFO" if verbose else "WARNING")).upper()
+        level = getattr(logging, level_name, logging.INFO)
+        self.logger.setLevel(level)
 
         # Validate mutually exclusive overlap constraints
         if (self.overlap_max_number is not None and self.overlap_max_number >= 0) and (
@@ -157,19 +194,22 @@ class MDSearch:
             return 0.0
         return min(allele0 / total_alleles, allele1 / total_alleles)
 
-    @staticmethod
-    def _calc_min_dist(snps: list) -> float:
+    def _calc_min_dist(self, snps: list) -> float:
         """Return minimal pairwise Hamming distance across samples for given SNPs.
 
         Optimized: compute only upper-triangle pairwise distances (j > i) and avoid
         self-pairs. Uses vectorized comparisons per anchor column.
         """
-        print(f"Calculate pairwise distance based on {len(snps)} SNPs...", end=" ")
+        if self.verbose:
+            self.logger.info(
+                f"Calculate pairwise distance based on {len(snps)} SNPs..."
+            )
         snps_array = np.array([i for i in snps])  # shape: (num_snps, num_samples)
         num_samples = snps_array.shape[1]
         pairwise_distances: list[float] = []
         if num_samples <= 1:
-            print("Distance between samples (min/med/avg/max): 0/0/0/0")
+            if self.verbose:
+                self.logger.info("Distance between samples (min/med/avg/max): 0/0/0/0")
             return 0.0
         for i in range(num_samples - 1):
             col_i = snps_array[:, i][:, None]  # (num_snps, 1)
@@ -181,10 +221,11 @@ class MDSearch:
             dists = diffs.sum(axis=0).astype(float)  # per pair distances vs column i
             pairwise_distances.extend(dists.tolist())
         res = np.array(pairwise_distances, dtype=float)
-        print(
-            "Distance between samples (min/med/avg/max): "
-            f"{np.min(res)}/{np.median(res)}/{round(float(np.mean(res)), 1)}/{np.max(res)}"
-        )
+        if self.verbose:
+            self.logger.info(
+                "Distance between samples (min/med/avg/max): "
+                f"{np.min(res)}/{np.median(res)}/{round(float(np.mean(res)), 1)}/{np.max(res)}"
+            )
         return float(np.min(res))
 
     def select_first_snp(self, excluded: set | None = None) -> str:
@@ -230,11 +271,15 @@ class MDSearch:
         current_snps_geno.append(self.snp_genotypes[current_snp][0])
         current_snp_set.append(current_snp)
 
-        print("Primary SNP selection...")
+        if self.verbose:
+            self.logger.info("Primary SNP selection...")
 
         # identify primary set of SNPs deterministically with tie-breakers
         while self._calc_min_dist(current_snps_geno) < self.min_dist:
-            print(f"Current SNP set contains {len(current_snp_set)} SNPs...")
+            if self.verbose:
+                self.logger.info(
+                    f"Current SNP set contains {len(current_snp_set)} SNPs..."
+                )
             parent_nodes_info = []
             for s, g in self.snp_genotypes.items():
                 if (s in current_snp_set) or (s in excluded):
@@ -251,7 +296,10 @@ class MDSearch:
             current_snps_geno.append(self.snp_genotypes[current_snp][0])
             current_snp_set.append(current_snp)
 
-        print(f"After 1st step {len(current_snp_set)} primary SNP selected")
+        if self.verbose:
+            self.logger.info(
+                f"After 1st step {len(current_snp_set)} primary SNP selected"
+            )
         return current_snp_set
 
     def _deterministic_eliminate(self, snp_set: list[str]) -> list[str]:
@@ -261,7 +309,8 @@ class MDSearch:
         contributions to pairwise distances across the upper triangle and updating
         totals incrementally when SNPs are removed.
         """
-        print("Backward one-by-one elimination (deterministic)...")
+        if self.verbose:
+            self.logger.info("Backward one-by-one elimination (deterministic)...")
 
         optimized_ids: list[str] = list(snp_set)
         # Build matrix (rows=SNPs, cols=samples) in current order
@@ -374,7 +423,8 @@ class MDSearch:
                 if len(unique_sets) >= self.n_sets:
                     break
 
-        print(f"{len(unique_sets)} discriminating SNP sets selected.")
+        if self.verbose:
+            self.logger.info(f"{len(unique_sets)} discriminating SNP sets selected.")
 
         # Optionally expand by PIC to reach max_snps
         best_snp_sets_final = []
@@ -398,18 +448,20 @@ class MDSearch:
                 )[::-1]
                 n_snps_to_add = self.max_snps - len(s)
                 s = list(s) + [i[0] for i in snp_pic[:n_snps_to_add]]
-                print(
-                    f"{n_snps_to_add} SNPs added to set {si} "
-                    f"(original set contains {orig_snp_number} SNPs, "
-                    f"total number of SNPs: {len(s)})."
-                )
+                if self.verbose:
+                    self.logger.info(
+                        f"{n_snps_to_add} SNPs added to set {si} "
+                        f"(original set contains {orig_snp_number} SNPs, "
+                        f"total number of SNPs: {len(s)})."
+                    )
                 best_snp_sets_final.append(s)
             else:
                 best_snp_sets_final.append(list(s))
-                print(
-                    f"Addition of SNPs to discriminating set {si} "
-                    f"is not required (total number of SNPs: {len(s)})."
-                )
+                if self.verbose:
+                    self.logger.info(
+                        f"Addition of SNPs to discriminating set {si} "
+                        f"is not required (total number of SNPs: {len(s)})."
+                    )
         return best_snp_sets_final
 
     def write_vcf(self, snp_sets_list: list[list[str]]) -> None:
@@ -463,28 +515,69 @@ class MDSearch:
                         else:
                             continue
 
+    def write_summary_tsv(self, snp_sets_list: list[list[str]]) -> None:
+        """Emit a TSV summary with per-set stats if a summary path is provided."""
+        if not self.summary_tsv:
+            return
+        header = [
+            "set_index",
+            "output_vcf",
+            "num_snps",
+            "min_distance",
+            "snp_ids",
+        ]
+        lines = ["\t".join(header)]
+        for si, s in enumerate(snp_sets_list, start=1):
+            out_vcf = f"{self.out_vcf}_{si}.vcf"
+            min_d = self._calc_min_dist_for_set_ids(s)
+            snp_ids_str = ",".join(sorted(s))
+            row = [str(si), out_vcf, str(len(s)), str(int(min_d)), snp_ids_str]
+            lines.append("\t".join(row))
+        self.summary_tsv.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.summary_tsv, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        if self.verbose:
+            self.logger.info(f"Summary TSV written: {self.summary_tsv}")
+
     def main(self) -> None:
         """Entrypoint: search optimal SNP sets and write them to VCF files."""
         selected_snps = self.optimal_snp_set_search()
-        print("Writing selected SNPs in VCF...")
+        if self.verbose:
+            self.logger.info("Writing selected SNPs in VCF...")
         self.write_vcf(selected_snps)
-        print("Done")
+        if self.verbose:
+            self.logger.info("Done")
+        # Optional summary TSV
+        self.write_summary_tsv(selected_snps)
 
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description=(
+            "Select minimal discriminatory SNP sets from a VCF given a minimal "
+            "pairwise Hamming distance; supports multiple alternative sets and "
+            "optional constraints."
+        ),
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        epilog=(
+            "Notes: Input VCF must be bi-allelic with SNP IDs present. "
+            "Multiallelics are rejected via ALT or GT."
+        ),
+    )
 
     parser.add_argument(
         "ivcf",
-        help="input vcf file",
+        help="Input VCF file (bi-allelic, with SNP IDs)",
         type=parser_resolve_path,
+        metavar="IVCF",
     )
     parser.add_argument(
         "ovcf_prefix",
-        help="prefix of output vcf file",
+        help="Prefix for output VCF(s)",
         type=parser_resolve_path,
+        metavar="OVCF_PREFIX",
     )
     # Legacy flags -s/-t/-c were removed; no-ops kept out of argparse to avoid confusion
     parser.add_argument(
@@ -492,52 +585,80 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-ts",
-        help=(
-            "Total number of SNPs in output set (Default: minimal discriminative set)"
-        ),
+        help="Total SNPs in output set (0 = keep minimal; default: 0)",
         default=0,
         type=int,
-        metavar="TOTAL SNP",
+        metavar="TOTAL_SNP",
     )
     parser.add_argument(
         "-md",
-        help="Minimal hamming distance between samples (Default: 1)",
+        help="Minimal Hamming distance between samples (default: 1)",
         default=1,
         type=int,
-        metavar="MIN DIST",
+        metavar="MIN_DIST",
     )
     parser.add_argument(
         "-ch",
-        help="Convert heterozygous calls into NA",
+        help="Convert heterozygous calls into NA (default: False)",
         action="store_true",
         default=False,
     )
     parser.add_argument(
         "-ns",
-        help="Number of distinct SNP sets in output (Default: 1)",
+        help="Number of distinct SNP sets in output (default: 1)",
         default=1,
         type=int,
-        metavar="N SETS",
+        metavar="N_SETS",
     )
     parser.add_argument(
         "-oMx",
         help=(
-            "Maximum overlap number with base minimal set for alternative sets "
-            "(Default: unlimited)"
+            "Maximum overlap count allowed with the base minimal set for "
+            "alternative sets (-1 = unlimited; default: -1)"
         ),
         default=-1,
         type=int,
-        metavar="OVERLAP MAX N",
+        metavar="OVERLAP_MAX_N",
     )
     parser.add_argument(
         "-oMf",
         help=(
-            "Maximum overlap fraction with base minimal set for alternative sets "
-            "(Default: unlimited)"
+            "Maximum overlap fraction allowed with the base minimal set for "
+            "alternative sets (-1 = unlimited; default: -1.0)"
         ),
         default=-1.0,
         type=float,
-        metavar="OVERLAP MAX FRAC",
+        metavar="OVERLAP_MAX_FRAC",
+    )
+    parser.add_argument(
+        "--quiet",
+        help="Suppress progress output (default: False)",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--log-level",
+        help=(
+            "Logging level (DEBUG, INFO, WARNING, ERROR); default depends on --quiet"
+        ),
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        default=None,
+    )
+    parser.add_argument(
+        "--log-format",
+        help="Logging format: text or json (default: text)",
+        choices=["text", "json"],
+        default="text",
+    )
+    parser.add_argument(
+        "--summary-tsv",
+        help=(
+            "Write per-set summary TSV to this path (columns: set_index, output_vcf, "
+            "num_snps, min_distance, snp_ids)."
+        ),
+        type=parser_resolve_path,
+        default=None,
+        metavar="SUMMARY_TSV",
     )
 
     args = parser.parse_args()
@@ -552,4 +673,8 @@ if __name__ == "__main__":
         n_sets=args.ns,
         overlap_max_number=args.oMx,
         overlap_max_fraction=args.oMf,
+        verbose=not args.quiet,
+        log_level=args.log_level,
+        log_format=args.log_format,
+        summary_tsv=args.summary_tsv,
     )

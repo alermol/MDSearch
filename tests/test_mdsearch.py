@@ -22,6 +22,7 @@ def run_mdsearch(ivcf: Path, out_prefix: Path, **kwargs):
         "n_sets": "-ns",
         "overlap_max_number": "-oMx",
         "overlap_max_fraction": "-oMf",
+        "summary_tsv": "--summary-tsv",
     }
     for k, v in kwargs.items():
         flag = cli_map[k]
@@ -1105,3 +1106,67 @@ def test_writer_preserves_format_and_replaces_only_gt_on_ch(tmp_path: Path):
     # For a homozygous sample (S3), GT stays and DP/GQ preserved
     s3 = cols[11].split(":")
     assert s3[0] == "1/1" and int(s3[1]) == 23 and int(s3[2]) == 72
+
+
+def test_summary_tsv_emitted_and_correct(tmp_path: Path):
+    samples = ["S1", "S2", "S3", "S4"]
+    variants = [
+        {
+            "chrom": "1",
+            "pos": 100,
+            "id": "A",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/0", "0/0", "1/1", "1/1"],
+        },
+        {
+            "chrom": "1",
+            "pos": 200,
+            "id": "B",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/0", "1/1", "0/0", "1/1"],
+        },
+        {
+            "chrom": "1",
+            "pos": 300,
+            "id": "N",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/1", "./.", "0/1", "./."],
+        },
+    ]
+    orig = tmp_path / "orig_summary.vcf"
+    write_vcf(orig, samples, variants)
+    out_prefix = tmp_path / "out_summary"
+    summary_path = tmp_path / "summary.tsv"
+    run_mdsearch(
+        orig,
+        out_prefix,
+        ploidy=2,
+        total_snps=0,
+        min_dist=1,
+        n_sets=1,
+        summary_tsv=summary_path,
+    )
+    # Save artifacts if enabled
+    save_out_prefix_vcfs(out_prefix, subdir="summary")
+    # Validate TSV exists
+    assert summary_path.exists()
+    # Read and validate content
+    lines = summary_path.read_text().strip().splitlines()
+    assert lines[0].split("\t") == [
+        "set_index",
+        "output_vcf",
+        "num_snps",
+        "min_distance",
+        "snp_ids",
+    ]
+    # Only one set expected; minimal set is A,B with min_distance >=1
+    cols = lines[1].split("\t")
+    assert cols[0] == "1"
+    assert cols[1].endswith("out_summary_1.vcf")
+    assert cols[2] == "2"
+    assert int(cols[3]) >= 1
+    ids = set(cols[4].split(","))
+    assert ids == {"A", "B"}
