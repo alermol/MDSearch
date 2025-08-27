@@ -1,4 +1,3 @@
-import random
 from pathlib import Path
 import re
 import sys
@@ -27,9 +26,6 @@ class MDSearch:
         self,
         in_vcf,
         out_vcf,
-        seed=None,
-        tries=None,
-        ncups=None,
         ploidy=None,
         max_snps=None,
         min_dist=None,
@@ -38,11 +34,8 @@ class MDSearch:
         overlap_max_number: int = -1,
         overlap_max_fraction: float = -1.0,
     ):
-        random.seed(seed)
         self.in_vcf = in_vcf
         self.out_vcf = out_vcf
-        self.tries = tries
-        self.ncups = ncups
         self.ploidy = ploidy
         self.max_snps = max_snps
         self.min_dist = min_dist
@@ -65,9 +58,7 @@ class MDSearch:
         with open(self.in_vcf) as vcf:
             for vcf_line in vcf.readlines():
                 vcf_line = vcf_line.strip()
-                if vcf_line.startswith("#CHROM"):
-                    self.target_gen_n = len(vcf_line.split("\t")[9:])
-                elif vcf_line.startswith("#"):
+                if vcf_line.startswith("#"):
                     continue
                 else:
                     snp_id = vcf_line.split("\t")[2]
@@ -441,9 +432,6 @@ if __name__ == "__main__":
     MDSearch(
         in_vcf=args.ivcf,
         out_vcf=args.ovcf_prefix,
-        seed=args.s,
-        ncups=args.c,
-        tries=args.t,
         ploidy=args.pl,
         max_snps=args.ts,
         min_dist=args.md,

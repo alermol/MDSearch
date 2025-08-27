@@ -65,7 +65,7 @@ python mdsearch.py input.vcf output_prefix
 
 ### Advanced Options
 ```bash
-usage: mdsearch.py [-h] [-s SEED] [-t TRIES] [-c CPU] [-pl PLOIDY] [-ts TOTAL SNP]
+usage: mdsearch.py [-h] [-pl PLOIDY] [-ts TOTAL SNP]
                    [-md MIN DIST] [-ch] [-ns N SETS] ivcf ovcf_prefix
 
 positional arguments:
@@ -74,9 +74,6 @@ positional arguments:
 
 options:
   -h, --help     Show help message
-  -s SEED        Random seed (default: 810491)
-  -t TRIES       Attempts to find minimal set (default: 20)
-  -c CPU         CPU cores to use (default: 4)
   -pl PLOIDY     Sample ploidy (default: 2)
   -ts TOTAL SNP  Total SNPs in output (minimal set)
   -md MIN DIST   Minimal Hamming distance (default: 1)
@@ -86,13 +83,10 @@ options:
 
 ### Example
 ```bash
-python mdsearch.py data.vcf results -s 42 -t 50 -c 8 -pl 2 -ts 50 -md 2 -ch -ns 3
+python mdsearch.py data.vcf results -pl 2 -ts 50 -md 2 -ch -ns 3
 ```
 
 This command will:
-- Use a random seed of 42
-- Attempt 50 tries to find the minimal SNP set
-- Utilize 8 CPU cores
 - Assume a ploidy of 2
 - Expand the final SNP set to 50 SNPs
 - Ensure a minimum Hamming distance of 2 between samples
@@ -111,7 +105,6 @@ Only `results_1.vcf` will be generated with `-ns 1` option.
 
 ## Notes
 - Input VCF must contain SNP IDs in the third column (ID field)
-- For large number of tries (argument `-t`) increase `-c` for more CPUs utilization
 - Use `-ch` when heterozygous calls shouldn't contribute to discrimination
 - Typical minimal distances:
   - `-md 1` for basic discrimination

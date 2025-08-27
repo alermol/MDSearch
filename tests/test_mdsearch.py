@@ -15,9 +15,6 @@ def run_mdsearch(ivcf: Path, out_prefix: Path, **kwargs):
     ]
     # Map kwargs to CLI
     cli_map = {
-        "seed": "-s",
-        "tries": "-t",
-        "cpus": "-c",
         "ploidy": "-pl",
         "total_snps": "-ts",
         "min_dist": "-md",
@@ -100,9 +97,6 @@ def test_ploidy_handling_diploid_and_haploid(tmp_path: Path):
     run_mdsearch(
         original_vcf,
         out_prefix,
-        seed=1,
-        tries=30,
-        cpus=2,
         ploidy=2,
         total_snps=0,
         min_dist=1,
@@ -148,9 +142,6 @@ def test_ploidy_handling_diploid_and_haploid(tmp_path: Path):
     run_mdsearch(
         original_vcf_hap,
         out_prefix_hap,
-        seed=1,
-        tries=30,
-        cpus=2,
         ploidy=1,
         total_snps=0,
         min_dist=1,
@@ -233,9 +224,6 @@ def test_total_snp_count_expansion_adds_by_pic(tmp_path: Path):
     run_mdsearch(
         original_vcf,
         out_prefix,
-        seed=1,
-        tries=30,
-        cpus=2,
         ploidy=2,
         total_snps=total,
         min_dist=1,
@@ -301,9 +289,6 @@ def test_min_hamming_distance_requirement_all_pairs(tmp_path: Path):
     run_mdsearch(
         original_vcf,
         out_prefix,
-        seed=1,
-        tries=30,
-        cpus=2,
         ploidy=2,
         total_snps=0,
         min_dist=2,
@@ -367,9 +352,6 @@ def test_convert_het_handling_ignores_heterozygotes(tmp_path: Path):
     run_mdsearch(
         original_vcf,
         out_prefix,
-        seed=1,
-        tries=30,
-        cpus=2,
         ploidy=2,
         total_snps=0,
         min_dist=1,
@@ -449,9 +431,6 @@ def test_multiple_sets_generation_no_overlap(tmp_path: Path):
     run_mdsearch(
         original_vcf,
         out_prefix,
-        seed=42,
-        tries=200,
-        cpus=2,
         ploidy=2,
         total_snps=0,
         min_dist=1,
@@ -522,9 +501,6 @@ def test_multiple_sets_with_max_overlap_number_cap(tmp_path: Path):
     run_mdsearch(
         original_vcf,
         out_prefix1,
-        seed=1,
-        tries=50,
-        cpus=2,
         ploidy=2,
         total_snps=0,
         min_dist=1,
@@ -544,9 +520,6 @@ def test_multiple_sets_with_max_overlap_number_cap(tmp_path: Path):
     run_mdsearch(
         original_vcf,
         out_prefix2,
-        seed=1,
-        tries=50,
-        cpus=2,
         ploidy=2,
         total_snps=0,
         min_dist=1,
@@ -609,9 +582,6 @@ def test_multiple_sets_with_max_overlap_fraction_cap(tmp_path: Path):
     run_mdsearch(
         original_vcf,
         out_prefix_f1,
-        seed=1,
-        tries=50,
-        cpus=2,
         ploidy=2,
         total_snps=0,
         min_dist=1,
@@ -632,9 +602,6 @@ def test_multiple_sets_with_max_overlap_fraction_cap(tmp_path: Path):
     run_mdsearch(
         original_vcf,
         out_prefix_fm,
-        seed=1,
-        tries=50,
-        cpus=2,
         ploidy=2,
         total_snps=0,
         min_dist=1,
@@ -656,9 +623,6 @@ def test_multiple_sets_with_max_overlap_fraction_cap(tmp_path: Path):
     run_mdsearch(
         original_vcf,
         out_prefix_f2,
-        seed=1,
-        tries=50,
-        cpus=2,
         ploidy=2,
         total_snps=0,
         min_dist=1,
@@ -709,9 +673,6 @@ def test_phased_vcf_basic_pipe_separator_handled(tmp_path: Path):
     run_mdsearch(
         original_vcf,
         out_prefix,
-        seed=1,
-        tries=30,
-        cpus=2,
         ploidy=2,
         total_snps=0,
         min_dist=1,
@@ -771,9 +732,6 @@ def test_phased_vcf_with_ch_converts_hets(tmp_path: Path):
     run_mdsearch(
         original_vcf,
         out_prefix,
-        seed=1,
-        tries=30,
-        cpus=2,
         ploidy=2,
         total_snps=3,
         min_dist=1,
@@ -829,9 +787,6 @@ def test_unphased_vcf_with_ch_converts_hets(tmp_path: Path):
     run_mdsearch(
         original_vcf,
         out_prefix,
-        seed=1,
-        tries=30,
-        cpus=2,
         ploidy=2,
         total_snps=3,
         min_dist=1,
@@ -870,9 +825,6 @@ def test_multiallelic_site_causes_error_exit(tmp_path: Path):
         run_mdsearch(
             original_vcf,
             out_prefix,
-            seed=1,
-            tries=5,
-            cpus=2,
             ploidy=2,
             total_snps=0,
             min_dist=1,
@@ -916,9 +868,6 @@ def test_total_snps_lower_than_minimal_kept_at_min(tmp_path: Path):
     run_mdsearch(
         original_vcf,
         out_prefix,
-        seed=1,
-        tries=10,
-        cpus=2,
         ploidy=2,
         total_snps=1,
         min_dist=1,
@@ -960,9 +909,6 @@ def test_overlap_flags_mutually_exclusive_error(tmp_path: Path):
         run_mdsearch(
             original_vcf,
             out_prefix,
-            seed=1,
-            tries=5,
-            cpus=2,
             ploidy=2,
             total_snps=0,
             min_dist=1,
@@ -1009,9 +955,6 @@ def test_triploid_ploidy_handling_with_mixed_genotypes(tmp_path: Path):
     run_mdsearch(
         original_vcf,
         out_prefix,
-        seed=1,
-        tries=20,
-        cpus=2,
         ploidy=3,
         total_snps=0,
         min_dist=1,
