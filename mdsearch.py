@@ -67,10 +67,13 @@ class MDSearch:
 
     @staticmethod
     def _calculate_maf(geno: list, ploidy: int):
-        total_alleles = len(geno) * ploidy
-        allele0 = 0
-        allele1 = 0
+        allele0 = 0.0
+        allele1 = 0.0
+        valid_genotypes = 0
         for i in geno:
+            if isinstance(i, float) and np.isnan(i):
+                continue
+            valid_genotypes += 1
             if i == 0:
                 allele0 += ploidy
             elif i == 1:
@@ -78,6 +81,9 @@ class MDSearch:
             else:
                 allele1 += i * ploidy
                 allele0 += ploidy - (i * ploidy)
+        total_alleles = valid_genotypes * ploidy
+        if total_alleles == 0:
+            return 0.0
         return min(allele0 / total_alleles, allele1 / total_alleles)
 
     @staticmethod
@@ -205,7 +211,7 @@ class MDSearch:
             orig_snp_number = len(s)
             if self.max_snps > len(s):
                 snp_maf = {sid: self._calculate_maf(
-                    g[1], self.ploidy) for sid, g in self.snp_genotypes.items() if sid not in s}
+                    g[0], self.ploidy) for sid, g in self.snp_genotypes.items() if sid not in s}
                 snp_pic = sorted([(sid, 1 - ((maf ** 2) + ((1 - maf) ** 2)),) for sid, maf in snp_maf.items()],
                                  key=lambda x: x[1])[::-1]
                 n_snps_to_add = self.max_snps - len(s)

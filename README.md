@@ -53,7 +53,7 @@ The final step optionally expands the minimal set with additional polymorphic SN
 ```bash
 git clone https://github.com/alermol/MDSearch.git
 cd MDSearch
-conda create --name mdsearch python numpy
+conda create --name mdsearch python numpy pytest
 conda activate mdsearch
 ```
 
@@ -118,6 +118,19 @@ Only `results_1.vcf` will be generated with `-ns 1` option.
   - `-md 2-3` for more robust discrimination
 - The script `generate_snp_pasport.py` in the `scripts` folder will generate a human-readable passport in the following format:
   > sample_name: Chr:Coordinate(SNP_genotype); Chr:Coordinate(SNP_genotype); Chr:Coordinate(SNP_genotype)
+
+## Testing
+Run the test suite (make sure the `mdsearch` environment is active):
+```bash
+pytest -q
+```
+
+The tests generate synthetic VCFs exercising:
+- Different genotype ploidy handling (`--pl`)
+- Expansion to a target total SNP count (`-ts`)
+- Enforcing minimal Hamming distance (`-md`)
+- Correct handling of heterozygous genotypes in distance calculation (`-ch`)
+- Producing multiple distinct discriminative SNP sets (`-ns`)
 
 ## License
 This project is open-source and available under the MIT License.
