@@ -53,8 +53,15 @@ class MDSearch:
                 "(max overlap fraction), not both."
             )
 
+        # Validate CLI numeric constraints early
+        if self.max_snps is not None and self.max_snps < 0:
+            sys.exit("-ts (total SNPs) must be >= 0")
+        if self.n_sets is None or self.n_sets < 1:
+            sys.exit("-ns (number of sets) must be >= 1")
+
         # calculate target number of genotypes and create list containing genotype for each SNP
         self.snp_genotypes = {}
+        seen_ids: set[str] = set()
         with open(self.in_vcf) as vcf:
             for vcf_line in vcf.readlines():
                 vcf_line = vcf_line.strip()
@@ -62,6 +69,15 @@ class MDSearch:
                     continue
                 else:
                     snp_id = vcf_line.split("\t")[2]
+                    if (not snp_id) or (snp_id == "."):
+                        sys.exit(
+                            "Missing or placeholder SNP ID detected. Ensure IDs are present and non-'.'."
+                        )
+                    if snp_id in seen_ids:
+                        sys.exit(
+                            f"Duplicate SNP ID detected: {snp_id}. Ensure SNP IDs are unique."
+                        )
+                    seen_ids.add(snp_id)
                     geno = []
                     for i in vcf_line.split("\t")[9:]:
                         if any(
@@ -357,23 +373,7 @@ if __name__ == "__main__":
         help="prefix of output vcf file",
         type=parser_resolve_path,
     )
-    parser.add_argument(
-        "-s",
-        help="random seed (default: 810491)",
-        default="810491",
-        type=int,
-        metavar="SEED",
-    )
-    parser.add_argument(
-        "-t",
-        help="number of tries to find minimal SNP set (default: 20)",
-        default=20,
-        type=int,
-        metavar="TRIES",
-    )
-    parser.add_argument(
-        "-c", help="number of CPUs (default: 4)", default=4, type=int, metavar="CPU"
-    )
+    # Legacy flags -s/-t/-c were removed; no-ops kept out of argparse to avoid confusion
     parser.add_argument(
         "-pl", help="VCF ploidy (default: 2)", default=2, type=int, metavar="PLOIDY"
     )
