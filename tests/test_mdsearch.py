@@ -19,6 +19,8 @@ def run_mdsearch(ivcf: Path, out_prefix: Path, **kwargs):
         "min_dist": "-md",
         "convert_het": "-ch",
         "n_sets": "-ns",
+        "overlap_max_number": "-oMx",
+        "overlap_max_fraction": "-oMf",
     }
     for k, v in kwargs.items():
         flag = cli_map[k]
@@ -178,7 +180,6 @@ def test_convert_het_handling(tmp_path: Path):
     assert set(get_snp_ids(produced)) == {"Z1", "Z2"}
 
 
-@pytest.mark.xfail(reason="Current algorithm may output only one minimal set; future improvement expected.")
 def test_multiple_sets_generation(tmp_path: Path):
     samples = ["S1", "S2", "S3", "S4"]
     # Construct two alternative minimal sets:
@@ -205,7 +206,8 @@ def test_multiple_sets_generation(tmp_path: Path):
 
     out_prefix = tmp_path / "out_ns"
     # Increase tries to improve chances of discovering both sets
-    run_mdsearch(original_vcf, out_prefix, seed=42, tries=200, cpus=2, ploidy=2, total_snps=0, min_dist=1, n_sets=2)
+    # Require no overlap between sets (disjoint sets)
+    run_mdsearch(original_vcf, out_prefix, seed=42, tries=200, cpus=2, ploidy=2, total_snps=0, min_dist=1, n_sets=2, overlap_max_number=0)
 
     produced1 = out_prefix.with_name(out_prefix.name + "_1.vcf")
     produced2 = out_prefix.with_name(out_prefix.name + "_2.vcf")
@@ -219,8 +221,96 @@ def test_multiple_sets_generation(tmp_path: Path):
 
     s1 = set(get_snp_ids(produced1))
     s2 = set(get_snp_ids(produced2))
-    assert s1 in ({"A", "B"}, {"C", "D"})
-    assert s2 in ({"A", "B"}, {"C", "D"})
+    # Expect disjoint discriminative pairs
+    assert s1.isdisjoint(s2)
     assert s1 != s2, "Expected two distinct discriminative sets"
+
+
+def test_overlap_constraints(tmp_path: Path):
+    samples = ["S1", "S2", "S3", "S4"]
+    # Design three informative SNPs where multiple minimal pairs exist
+    variants = [
+        {"chrom": "1", "pos": 100, "id": "A", "ref": "A", "alt": "T", "genotypes": ["0/0", "0/0", "1/1", "1/1"]},
+        {"chrom": "1", "pos": 200, "id": "B", "ref": "A", "alt": "T", "genotypes": ["0/0", "1/1", "0/0", "1/1"]},
+        {"chrom": "1", "pos": 300, "id": "C", "ref": "A", "alt": "T", "genotypes": ["0/0", "1/1", "1/1", "0/0"]},
+        # Noise with het/missing
+        {"chrom": "1", "pos": 400, "id": "N1", "ref": "A", "alt": "T", "genotypes": ["0/1", "./.", "0/1", "./."]},
+    ]
+    original_vcf = tmp_path / "orig_ovl.vcf"
+    write_vcf(original_vcf, samples, variants)
+
+    # Without overlap constraint, we can get two distinct pairs
+    out_prefix1 = tmp_path / "out_ovl1"
+    run_mdsearch(original_vcf, out_prefix1, seed=1, tries=50, cpus=2, ploidy=2, total_snps=0, min_dist=1, n_sets=2)
+    p1a = out_prefix1.with_name(out_prefix1.name + "_1.vcf")
+    p1b = out_prefix1.with_name(out_prefix1.name + "_2.vcf")
+    save_out_prefix_vcfs(out_prefix1, subdir="ovl_none")
+    s1 = set(get_snp_ids(p1a))
+    s2 = set(get_snp_ids(p1b))
+    assert s1 != s2
+    assert_discriminative(p1a, ploidy=2, min_dist=1, convert_het=False)
+    assert_discriminative(p1b, ploidy=2, min_dist=1, convert_het=False)
+
+    # With overlap_max_number=1, ensure sets share at most one SNP
+    out_prefix2 = tmp_path / "out_ovl2"
+    run_mdsearch(original_vcf, out_prefix2, seed=1, tries=50, cpus=2, ploidy=2, total_snps=0, min_dist=1, n_sets=2, overlap_max_number=1)
+    p2a = out_prefix2.with_name(out_prefix2.name + "_1.vcf")
+    p2b = out_prefix2.with_name(out_prefix2.name + "_2.vcf")
+    save_out_prefix_vcfs(out_prefix2, subdir="ovl_n1")
+    s1b = set(get_snp_ids(p2a))
+    s2b = set(get_snp_ids(p2b))
+    base_overlap = len(s1b.intersection(s2b))
+    assert base_overlap <= 1
+    assert s1b != s2b
+    assert_discriminative(p2a, ploidy=2, min_dist=1, convert_het=False)
+    assert_discriminative(p2b, ploidy=2, min_dist=1, convert_het=False)
+
+
+def test_overlap_fraction(tmp_path: Path):
+    samples = ["S1", "S2", "S3", "S4"]
+    variants = [
+        {"chrom": "1", "pos": 100, "id": "A", "ref": "A", "alt": "T", "genotypes": ["0/0", "0/0", "1/1", "1/1"]},
+        {"chrom": "1", "pos": 200, "id": "B", "ref": "A", "alt": "T", "genotypes": ["0/0", "1/1", "0/0", "1/1"]},
+        {"chrom": "1", "pos": 300, "id": "C", "ref": "A", "alt": "T", "genotypes": ["0/0", "1/1", "1/1", "0/0"]},
+        {"chrom": "1", "pos": 400, "id": "N1", "ref": "A", "alt": "T", "genotypes": ["0/1", "./.", "0/1", "./."]},
+    ]
+    original_vcf = tmp_path / "orig_ovlf.vcf"
+    write_vcf(original_vcf, samples, variants)
+
+    # No cap (default): ensure two distinct sets exist
+    out_prefix_f1 = tmp_path / "out_ovlf1"
+    run_mdsearch(original_vcf, out_prefix_f1, seed=1, tries=50, cpus=2, ploidy=2, total_snps=0, min_dist=1, n_sets=2)
+    pfa = out_prefix_f1.with_name(out_prefix_f1.name + "_1.vcf")
+    pfb = out_prefix_f1.with_name(out_prefix_f1.name + "_2.vcf")
+    save_out_prefix_vcfs(out_prefix_f1, subdir="ovl_fnc")
+    assert pfa.exists() and pfb.exists()
+    sfa = set(get_snp_ids(pfa))
+    sfb = set(get_snp_ids(pfb))
+    assert sfa != sfb
+    assert_discriminative(pfa, ploidy=2, min_dist=1, convert_het=False)
+    assert_discriminative(pfb, ploidy=2, min_dist=1, convert_het=False)
+
+    # With overlap_max_fraction=0.5, intersection must be <= floor(0.5 * |base|) = 1 (since base size is 2)
+    out_prefix_fm = tmp_path / "out_ovlfm"
+    run_mdsearch(original_vcf, out_prefix_fm, seed=1, tries=50, cpus=2, ploidy=2, total_snps=0, min_dist=1, n_sets=2, overlap_max_fraction=0.5)
+    pfm_a = out_prefix_fm.with_name(out_prefix_fm.name + "_1.vcf")
+    pfm_b = out_prefix_fm.with_name(out_prefix_fm.name + "_2.vcf")
+    save_out_prefix_vcfs(out_prefix_fm, subdir="ovl_f05")
+    assert pfm_a.exists() and pfm_b.exists()
+    sfm_a = set(get_snp_ids(pfm_a))
+    sfm_b = set(get_snp_ids(pfm_b))
+    assert len(sfm_a.intersection(sfm_b)) <= 1
+    assert_discriminative(pfm_a, ploidy=2, min_dist=1, convert_het=False)
+    assert_discriminative(pfm_b, ploidy=2, min_dist=1, convert_het=False)
+
+    # With overlap_max_fraction=0.0, disjoint requirement leaves only one set in this toy design
+    out_prefix_f2 = tmp_path / "out_ovlf2"
+    run_mdsearch(original_vcf, out_prefix_f2, seed=1, tries=50, cpus=2, ploidy=2, total_snps=0, min_dist=1, n_sets=2, overlap_max_fraction=0.0)
+    pf2a = out_prefix_f2.with_name(out_prefix_f2.name + "_1.vcf")
+    pf2b = out_prefix_f2.with_name(out_prefix_f2.name + "_2.vcf")
+    save_out_prefix_vcfs(out_prefix_f2, subdir="ovl_f00")
+    assert pf2a.exists()
+    assert not pf2b.exists()
+    assert_discriminative(pf2a, ploidy=2, min_dist=1, convert_het=False)
 
 

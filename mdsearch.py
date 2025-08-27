@@ -23,7 +23,9 @@ class MDSearch:
         max_snps=None,
         min_dist=None,
         convert_het=None,
-        n_sets=None
+        n_sets=None,
+        overlap_max_number: int = -1,
+        overlap_max_fraction: float = -1.0,
     ):
         random.seed(seed)
         self.in_vcf = in_vcf
@@ -35,6 +37,14 @@ class MDSearch:
         self.min_dist = min_dist
         self.convert_het = convert_het
         self.n_sets = n_sets
+        self.overlap_max_number = overlap_max_number
+        self.overlap_max_fraction = overlap_max_fraction
+
+        # Validate mutually exclusive overlap constraints
+        if (self.overlap_max_number is not None and self.overlap_max_number >= 0) and (
+            self.overlap_max_fraction is not None and self.overlap_max_fraction >= 0
+        ):
+            sys.exit("Specify only one of -oMx (max overlap number) or -oMf (max overlap fraction), not both.")
 
         # calculate target number of genotypes and create list containing genotype for each SNP
         self.snp_genotypes = {}
@@ -104,110 +114,136 @@ class MDSearch:
         print(f'Distance between samples (min/med/avg/max): {min(res)}/{median(res)}/{round(mean(res), 1)}/{max(res)}')
         return min(res)
 
-    def select_first_snp(self):
-        # select SNP with max MAF
-        snp_id, snp_maf = None, None
+    def select_first_snp(self, excluded: set | None = None):
+        # select SNP with max MAF; deterministic tie-breaker by SNP ID asc
+        excluded = excluded or set()
+        candidates = []
         for sid, sg in self.snp_genotypes.items():
-            if (snp_id is None) and (snp_maf is None):
-                snp_id = sid
-                snp_maf = self._calculate_maf(sg[0], self.ploidy)
-            else:
-                maf = self._calculate_maf(sg[0], self.ploidy)
-                if maf > snp_maf:
-                    snp_id = sid
-                    snp_maf = maf
-                else:
-                    continue
-        return snp_id
+            if sid in excluded:
+                continue
+            maf = self._calculate_maf(sg[0], self.ploidy)
+            candidates.append((sid, maf))
+        if not candidates:
+            sys.exit("No SNPs available for selection after exclusions.")
+        candidates.sort(key=lambda x: (-x[1], x[0]))
+        return candidates[0][0]
 
     def is_het(self, genotype: str):
         return len(set(re.findall(r'[0-9]+', genotype))) > 1
 
-    @staticmethod
-    def worker(snp_set, snp_genotypes, min_dist, seed):
-        def _calc_min_dist(snps: list):
-            snps_array = np.array([i for i in snps])
-            n_samples = snps_array.shape[1]
-            distances = np.zeros((n_samples, n_samples), dtype=float)
-            for i in range(n_samples):
-                for j in range(n_samples):
-                    col_i = snps_array[:, i]
-                    col_j = snps_array[:, j]
-                    valid_mask = (~np.isnan(col_i) & ~np.isnan(col_j))
-                    distance = np.nansum(col_i[valid_mask] != col_j[valid_mask])
-                    distances[i, j] = distance
-            res = min(distances[np.triu_indices(n_samples, k=1)])
-            return res
+    def _calc_min_dist_for_set_ids(self, snp_ids: list[str]) -> float:
+        if not snp_ids:
+            return 0.0
+        genos = [self.snp_genotypes[sid][0] for sid in snp_ids]
+        return self._calc_min_dist(genos)
 
-        random.seed(seed)
-        tested_snp_set = snp_set.copy()
-        for i in range(len(snp_set)):
-            snp_to_remove = random.choice(tested_snp_set)
-            tested_snp_set.remove(snp_to_remove)  # remove random snp
-            tested_geno = [
-                snp_genotypes[i][0] for i in tested_snp_set
-            ]  # extract genotypes of new snp set
-            if _calc_min_dist(tested_geno) < min_dist:
-                tested_snp_set.append(snp_to_remove)
-            else:
-                continue
-        return tuple(tested_snp_set)
+    class BuildError(Exception):
+        pass
 
-    def optimal_snp_set_search(self):
-        current_snp_set = []
+    def _build_primary_set(self, excluded: set | None = None) -> list[str]:
+        excluded = excluded or set()
+        current_snp_set: list[str] = []
         current_snps_geno = []
 
         # choose first snp
-        current_snp = self.select_first_snp()
+        current_snp = self.select_first_snp(excluded=excluded)
         current_snps_geno.append(self.snp_genotypes[current_snp][0])
         current_snp_set.append(current_snp)
 
         print("Primary SNP selection...")
 
-        # identify primary set of SNPs
-        try:
-            while self._calc_min_dist(current_snps_geno) < self.min_dist:
-                print(
-                    f'Current SNP set contains {len(current_snp_set)} SNPs...')
-                parent_nodes_info = []
-                for s, g in self.snp_genotypes.items():
-                    if s in current_snp_set:
-                        continue
-                    else:
-                        maf = self._calculate_maf(g[0], self.ploidy)
-                        snp_info = (s, maf)
-                        parent_nodes_info.append(snp_info)
-                current_snp = sorted(
-                    parent_nodes_info, key=lambda x: x[1], reverse=True
-                )[0][0]
-                current_snps_geno.append(self.snp_genotypes[current_snp][0])
-                current_snp_set.append(current_snp)
-        except IndexError:
-            sys.exit("Not enough polymorphic SNP to discriminate samples. Exit.")
+        # identify primary set of SNPs deterministically with tie-breakers
+        while self._calc_min_dist(current_snps_geno) < self.min_dist:
+            print(
+                f'Current SNP set contains {len(current_snp_set)} SNPs...')
+            parent_nodes_info = []
+            for s, g in self.snp_genotypes.items():
+                if (s in current_snp_set) or (s in excluded):
+                    continue
+                maf = self._calculate_maf(g[0], self.ploidy)
+                parent_nodes_info.append((s, maf))
+            if not parent_nodes_info:
+                raise MDSearch.BuildError("Not enough polymorphic SNP to discriminate samples.")
+            # Sort by MAF desc, SNP ID asc
+            parent_nodes_info.sort(key=lambda x: (-x[1], x[0]))
+            current_snp = parent_nodes_info[0][0]
+            current_snps_geno.append(self.snp_genotypes[current_snp][0])
+            current_snp_set.append(current_snp)
 
         print(f"After 1st step {len(current_snp_set)} primary SNP selected")
+        return current_snp_set
 
-        print("Backward one-by-one elimination...")
+    def _deterministic_eliminate(self, snp_set: list[str]) -> list[str]:
+        print("Backward one-by-one elimination (deterministic)...")
+        # Greedy removal in stable order (SNP ID asc)
+        optimized = list(snp_set)
+        for sid in sorted(list(optimized)):
+            trial = [x for x in optimized if x != sid]
+            if self._calc_min_dist_for_set_ids(trial) >= self.min_dist:
+                optimized = trial
+        return optimized
 
-        # one-by-one elimination
-        with Pool(processes=self.ncups) as pool:
-            res = pool.starmap(
-                self.worker,
-                [
-                    (
-                        current_snp_set,
-                        self.snp_genotypes,
-                        self.min_dist,
-                        random.uniform(10000, 10000000)
-                    )
-                    for _ in range(self.tries)
-                ]
-            )
-        best_snp_sets = [list(i) for i in sorted(set([tuple(sorted(list(i))) for i in res]), key=len)[:self.n_sets]]
-        print(f"{len(best_snp_sets)} discriminating SNP sets selected.")
+    def optimal_snp_set_search(self):
+        # Base minimal set
+        try:
+            base_primary = self._build_primary_set(excluded=set())
+        except MDSearch.BuildError:
+            sys.exit("Not enough polymorphic SNP to discriminate samples. Exit.")
+        base_minimal = self._deterministic_eliminate(base_primary)
 
+        # Enumerate alternatives by excluding each SNP from the base minimal set
+        unique_sets = []
+        seen = set()
+
+        def add_set(s):
+            key = tuple(sorted(s))
+            if key not in seen:
+                seen.add(key)
+                unique_sets.append(list(key))
+
+        add_set(base_minimal)
+
+        # Determine allowed maximum overlap (default = no cap)
+        from math import floor
+        allowed_max_num = self.overlap_max_number if (self.overlap_max_number is not None and self.overlap_max_number >= 0) else len(base_minimal)
+        allowed_max_frac = floor(self.overlap_max_fraction * len(base_minimal)) if (self.overlap_max_fraction is not None and self.overlap_max_fraction >= 0) else len(base_minimal)
+        allowed_max = min(allowed_max_num, allowed_max_frac)
+
+        # If we need to cap overlap, exclude combinations of base SNPs to achieve it
+        from itertools import combinations
+        exclude_size = max(1, len(base_minimal) - allowed_max)
+        tried = 0
+        for excl in combinations(sorted(base_minimal), exclude_size):
+            try:
+                alt_primary = self._build_primary_set(excluded=set(excl))
+            except MDSearch.BuildError:
+                continue
+            alt_minimal = self._deterministic_eliminate(alt_primary)
+            overlap = len(set(alt_minimal).intersection(base_minimal))
+            if len(alt_minimal) == len(base_minimal) and (overlap <= allowed_max):
+                add_set(alt_minimal)
+            if len(unique_sets) >= self.n_sets:
+                break
+            tried += 1
+        # Fallback: if no cap requested (allowed_max equals base size), use single exclusions
+        if len(unique_sets) < self.n_sets and allowed_max >= len(base_minimal):
+            for sid in sorted(base_minimal):
+                try:
+                    alt_primary = self._build_primary_set(excluded={sid})
+                except MDSearch.BuildError:
+                    continue
+                alt_minimal = self._deterministic_eliminate(alt_primary)
+                overlap = len(set(alt_minimal).intersection(base_minimal))
+                if len(alt_minimal) == len(base_minimal):
+                    add_set(alt_minimal)
+                if len(unique_sets) >= self.n_sets:
+                    break
+
+        print(f"{len(unique_sets)} discriminating SNP sets selected.")
+
+        # Optionally expand by PIC to reach max_snps
         best_snp_sets_final = []
-        for si, s in enumerate(best_snp_sets, start=1):
+        for si, s in enumerate(unique_sets[: self.n_sets], start=1):
             orig_snp_number = len(s)
             if self.max_snps > len(s):
                 snp_maf = {sid: self._calculate_maf(
@@ -215,12 +251,12 @@ class MDSearch:
                 snp_pic = sorted([(sid, 1 - ((maf ** 2) + ((1 - maf) ** 2)),) for sid, maf in snp_maf.items()],
                                  key=lambda x: x[1])[::-1]
                 n_snps_to_add = self.max_snps - len(s)
-                s += [i[0] for i in snp_pic[:n_snps_to_add]]
+                s = list(s) + [i[0] for i in snp_pic[:n_snps_to_add]]
                 print(
                     f"{n_snps_to_add} SNPs added to set {si} (orignial set contains {orig_snp_number} SNPs, total number of SNPs: {len(s)}).")
                 best_snp_sets_final.append(s)
             else:
-                best_snp_sets_final.append(s)
+                best_snp_sets_final.append(list(s))
                 print(
                     f"Addition of SNPs to discriminating set {si} is not required (total number of SNPs: {len(s)}).")
         return best_snp_sets_final
@@ -292,6 +328,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "-ns", help="Number of distinct SNP sets in output (Default: 1)", default=1, type=int, metavar="N SETS"
     )
+    parser.add_argument(
+        "-oMx", help="Maximum overlap number with base minimal set for alternative sets (Default: unlimited)", default=-1, type=int, metavar="OVERLAP MAX N"
+    )
+    parser.add_argument(
+        "-oMf", help="Maximum overlap fraction with base minimal set for alternative sets (Default: unlimited)", default=-1.0, type=float, metavar="OVERLAP MAX FRAC"
+    )
 
     args = parser.parse_args()
 
@@ -306,4 +348,6 @@ if __name__ == "__main__":
         min_dist=args.md,
         convert_het=args.ch,
         n_sets=args.ns
+        , overlap_max_number=args.oMx
+        , overlap_max_fraction=args.oMf
     )
