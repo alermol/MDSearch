@@ -36,7 +36,7 @@ def run_mdsearch(ivcf: Path, out_prefix: Path, **kwargs):
     subprocess.run(args, check=True)
 
 
-def test_ploidy_handling(tmp_path: Path):
+def test_ploidy_handling_diploid_and_haploid(tmp_path: Path):
     # Samples
     samples = ["S1", "S2", "S3", "S4"]
 
@@ -162,7 +162,7 @@ def test_ploidy_handling(tmp_path: Path):
     assert set(get_snp_ids(produced_hap)) == {"A", "B"}
 
 
-def test_total_snp_count_expansion(tmp_path: Path):
+def test_total_snp_count_expansion_adds_by_pic(tmp_path: Path):
     samples = ["S1", "S2", "S3", "S4"]
     # Minimal discriminative set: A,B
     # Additional polymorphic SNPs E,F,G with varying MAF for PIC scoring
@@ -251,7 +251,7 @@ def test_total_snp_count_expansion(tmp_path: Path):
     assert_discriminative(produced, ploidy=2, min_dist=1, convert_het=False)
 
 
-def test_min_hamming_distance_requirement(tmp_path: Path):
+def test_min_hamming_distance_requirement_all_pairs(tmp_path: Path):
     samples = ["S1", "S2", "S3", "S4"]
     # Minimal set of 3 SNPs reaching min pairwise distance >=2 using codewords 000, 011, 101, 110
     variants = [
@@ -316,7 +316,7 @@ def test_min_hamming_distance_requirement(tmp_path: Path):
     assert set(get_snp_ids(produced)) == {"X1", "X2", "X3"}
 
 
-def test_convert_het_handling(tmp_path: Path):
+def test_convert_het_handling_ignores_heterozygotes(tmp_path: Path):
     samples = ["S1", "S2", "S3", "S4"]
     # Design where one SNP Y is heterozygous for several samples and thus should not contribute when -ch is used.
     # Z1 and Z2 form the minimal set when ignoring hets.
@@ -384,7 +384,7 @@ def test_convert_het_handling(tmp_path: Path):
     assert set(get_snp_ids(produced)) == {"Z1", "Z2"}
 
 
-def test_multiple_sets_generation(tmp_path: Path):
+def test_multiple_sets_generation_no_overlap(tmp_path: Path):
     samples = ["S1", "S2", "S3", "S4"]
     # Construct two alternative minimal sets:
     # Set1: A,B  and Set2: C,D
@@ -476,7 +476,7 @@ def test_multiple_sets_generation(tmp_path: Path):
     assert s1 != s2, "Expected two distinct discriminative sets"
 
 
-def test_overlap_constraints(tmp_path: Path):
+def test_multiple_sets_with_max_overlap_number_cap(tmp_path: Path):
     samples = ["S1", "S2", "S3", "S4"]
     # Design three informative SNPs where multiple minimal pairs exist
     variants = [
@@ -565,7 +565,7 @@ def test_overlap_constraints(tmp_path: Path):
     assert_discriminative(p2b, ploidy=2, min_dist=1, convert_het=False)
 
 
-def test_overlap_fraction(tmp_path: Path):
+def test_multiple_sets_with_max_overlap_fraction_cap(tmp_path: Path):
     samples = ["S1", "S2", "S3", "S4"]
     variants = [
         {
@@ -673,7 +673,7 @@ def test_overlap_fraction(tmp_path: Path):
     assert_discriminative(pf2a, ploidy=2, min_dist=1, convert_het=False)
 
 
-def test_phased_vcf_basic(tmp_path: Path):
+def test_phased_vcf_basic_pipe_separator_handled(tmp_path: Path):
     samples = ["S1", "S2", "S3", "S4"]
     variants = [
         {
@@ -725,7 +725,7 @@ def test_phased_vcf_basic(tmp_path: Path):
     assert set(get_snp_ids(produced)) == {"A", "B"}
 
 
-def test_phased_vcf_with_ch_formatting(tmp_path: Path):
+def test_phased_vcf_with_ch_converts_hets(tmp_path: Path):
     samples = ["S1", "S2", "S3", "S4"]
     # Core discriminators are Z1 and Z2 (both homozygous). P contains phased hets.
     variants = [
@@ -793,7 +793,7 @@ def test_phased_vcf_with_ch_formatting(tmp_path: Path):
     assert ".|." in txt
 
 
-def test_unphased_vcf_with_ch_formatting(tmp_path: Path):
+def test_unphased_vcf_with_ch_converts_hets(tmp_path: Path):
     samples = ["S1", "S2", "S3", "S4"]
     # Core discriminators are Z1 and Z2; Q contains unphased hets
     variants = [
@@ -847,7 +847,7 @@ def test_unphased_vcf_with_ch_formatting(tmp_path: Path):
     assert "./." in txt
 
 
-def test_multiallelic_site_causes_error(tmp_path: Path):
+def test_multiallelic_site_causes_error_exit(tmp_path: Path):
     samples = ["S1", "S2", "S3", "S4"]
     # Include a genotype with allele index 2 to trigger multiallelic error
     variants = [
@@ -880,7 +880,7 @@ def test_multiallelic_site_causes_error(tmp_path: Path):
         )
 
 
-def test_total_snps_lower_than_minimal_kept(tmp_path: Path):
+def test_total_snps_lower_than_minimal_kept_at_min(tmp_path: Path):
     samples = ["S1", "S2", "S3", "S4"]
     variants = [
         {
@@ -930,7 +930,7 @@ def test_total_snps_lower_than_minimal_kept(tmp_path: Path):
     assert set(ids) == {"A", "B"}
 
 
-def test_overlap_flags_mutually_exclusive(tmp_path: Path):
+def test_overlap_flags_mutually_exclusive_error(tmp_path: Path):
     samples = ["S1", "S2", "S3", "S4"]
     variants = [
         {
@@ -972,7 +972,7 @@ def test_overlap_flags_mutually_exclusive(tmp_path: Path):
         )
 
 
-def test_triploid_ploidy_handling(tmp_path: Path):
+def test_triploid_ploidy_handling_with_mixed_genotypes(tmp_path: Path):
     samples = ["S1", "S2", "S3", "S4"]
     # Triploid: use 3 alleles per sample, with only 0 and 1 allele indices
     variants = [
