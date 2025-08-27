@@ -671,3 +671,352 @@ def test_overlap_fraction(tmp_path: Path):
     assert pf2a.exists()
     assert not pf2b.exists()
     assert_discriminative(pf2a, ploidy=2, min_dist=1, convert_het=False)
+
+
+def test_phased_vcf_basic(tmp_path: Path):
+    samples = ["S1", "S2", "S3", "S4"]
+    variants = [
+        {
+            "chrom": "1",
+            "pos": 100,
+            "id": "A",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0|0", "0|0", "1|1", "1|1"],
+        },
+        {
+            "chrom": "1",
+            "pos": 200,
+            "id": "B",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0|0", "1|1", "0|0", "1|1"],
+        },
+        # Noise phased het/missing
+        {
+            "chrom": "1",
+            "pos": 300,
+            "id": "N1",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0|1", ".|.", "0|1", ".|."],
+        },
+    ]
+    original_vcf = tmp_path / "orig_phased.vcf"
+    write_vcf(original_vcf, samples, variants)
+
+    out_prefix = tmp_path / "out_phased"
+    run_mdsearch(
+        original_vcf,
+        out_prefix,
+        seed=1,
+        tries=30,
+        cpus=2,
+        ploidy=2,
+        total_snps=0,
+        min_dist=1,
+        n_sets=1,
+    )
+    produced = out_prefix.with_name(out_prefix.name + "_1.vcf")
+    save_out_prefix_vcfs(out_prefix, subdir="phased_basic")
+
+    assert produced.exists()
+    assert_discriminative(produced, ploidy=2, min_dist=1, convert_het=False)
+    assert set(get_snp_ids(produced)) == {"A", "B"}
+
+
+def test_phased_vcf_with_ch_formatting(tmp_path: Path):
+    samples = ["S1", "S2", "S3", "S4"]
+    # Core discriminators are Z1 and Z2 (both homozygous). P contains phased hets.
+    variants = [
+        {
+            "chrom": "1",
+            "pos": 210,
+            "id": "Z1",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0|0", "0|0", "1|1", "1|1"],
+        },
+        {
+            "chrom": "1",
+            "pos": 220,
+            "id": "Z2",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0|0", "1|1", "0|0", "1|1"],
+        },
+        {
+            "chrom": "1",
+            "pos": 150,
+            "id": "P",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0|1", "0|1", "1|1", "0|0"],
+        },
+        # Extra phased noise
+        {
+            "chrom": "1",
+            "pos": 230,
+            "id": "N2",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0|1", ".|.", "0|1", ".|."],
+        },
+    ]
+    original_vcf = tmp_path / "orig_phased_ch.vcf"
+    write_vcf(original_vcf, samples, variants)
+
+    out_prefix = tmp_path / "out_phased_ch"
+    # Force inclusion of P via total_snps expansion
+    run_mdsearch(
+        original_vcf,
+        out_prefix,
+        seed=1,
+        tries=30,
+        cpus=2,
+        ploidy=2,
+        total_snps=3,
+        min_dist=1,
+        convert_het=True,
+        n_sets=1,
+    )
+    produced = out_prefix.with_name(out_prefix.name + "_1.vcf")
+    save_out_prefix_vcfs(out_prefix, subdir="phased_ch")
+
+    assert produced.exists()
+    assert_discriminative(produced, ploidy=2, min_dist=1, convert_het=True)
+    ids = set(get_snp_ids(produced))
+    assert {"Z1", "Z2"}.issubset(ids)
+    assert "P" in ids  # P added during expansion
+    # Heterozygous phased calls must be converted to '.|.' in output for selected P
+    txt = Path(produced).read_text()
+    assert ".|." in txt
+
+
+def test_unphased_vcf_with_ch_formatting(tmp_path: Path):
+    samples = ["S1", "S2", "S3", "S4"]
+    # Core discriminators are Z1 and Z2; Q contains unphased hets
+    variants = [
+        {
+            "chrom": "1",
+            "pos": 210,
+            "id": "Z1",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/0", "0/0", "1/1", "1/1"],
+        },
+        {
+            "chrom": "1",
+            "pos": 220,
+            "id": "Z2",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/0", "1/1", "0/0", "1/1"],
+        },
+        {
+            "chrom": "1",
+            "pos": 150,
+            "id": "Q",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/1", "0/1", "1/1", "0/0"],
+        },
+    ]
+    original_vcf = tmp_path / "orig_unphased_ch.vcf"
+    write_vcf(original_vcf, samples, variants)
+
+    out_prefix = tmp_path / "out_unphased_ch"
+    run_mdsearch(
+        original_vcf,
+        out_prefix,
+        seed=1,
+        tries=30,
+        cpus=2,
+        ploidy=2,
+        total_snps=3,
+        min_dist=1,
+        convert_het=True,
+        n_sets=1,
+    )
+    produced = out_prefix.with_name(out_prefix.name + "_1.vcf")
+    save_out_prefix_vcfs(out_prefix, subdir="unphased_ch")
+
+    assert produced.exists()
+    assert_discriminative(produced, ploidy=2, min_dist=1, convert_het=True)
+    txt = Path(produced).read_text()
+    assert "./." in txt
+
+
+def test_multiallelic_site_causes_error(tmp_path: Path):
+    samples = ["S1", "S2", "S3", "S4"]
+    # Include a genotype with allele index 2 to trigger multiallelic error
+    variants = [
+        {
+            "chrom": "1",
+            "pos": 100,
+            "id": "M1",
+            "ref": "A",
+            "alt": "T,C",
+            "genotypes": ["0/0", "0/0", "1/2", "2/2"],
+        },
+    ]
+    original_vcf = tmp_path / "orig_multiallelic.vcf"
+    write_vcf(original_vcf, samples, variants)
+
+    out_prefix = tmp_path / "out_multiallelic"
+    import pytest
+
+    with pytest.raises(subprocess.CalledProcessError):
+        run_mdsearch(
+            original_vcf,
+            out_prefix,
+            seed=1,
+            tries=5,
+            cpus=2,
+            ploidy=2,
+            total_snps=0,
+            min_dist=1,
+            n_sets=1,
+        )
+
+
+def test_total_snps_lower_than_minimal_kept(tmp_path: Path):
+    samples = ["S1", "S2", "S3", "S4"]
+    variants = [
+        {
+            "chrom": "1",
+            "pos": 100,
+            "id": "A",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/0", "0/0", "1/1", "1/1"],
+        },
+        {
+            "chrom": "1",
+            "pos": 200,
+            "id": "B",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/0", "1/1", "0/0", "1/1"],
+        },
+        {
+            "chrom": "1",
+            "pos": 300,
+            "id": "N",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/1", "./.", "0/1", "./."],
+        },
+    ]
+    original_vcf = tmp_path / "orig_tslt.vcf"
+    write_vcf(original_vcf, samples, variants)
+
+    out_prefix = tmp_path / "out_tslt"
+    # Request fewer SNPs than minimal size (1 < 2). Expect still 2 SNPs.
+    run_mdsearch(
+        original_vcf,
+        out_prefix,
+        seed=1,
+        tries=10,
+        cpus=2,
+        ploidy=2,
+        total_snps=1,
+        min_dist=1,
+        n_sets=1,
+    )
+    produced = out_prefix.with_name(out_prefix.name + "_1.vcf")
+    ids = get_snp_ids(produced)
+    assert len(ids) == 2
+    assert set(ids) == {"A", "B"}
+
+
+def test_overlap_flags_mutually_exclusive(tmp_path: Path):
+    samples = ["S1", "S2", "S3", "S4"]
+    variants = [
+        {
+            "chrom": "1",
+            "pos": 100,
+            "id": "A",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/0", "0/0", "1/1", "1/1"],
+        },
+        {
+            "chrom": "1",
+            "pos": 200,
+            "id": "B",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/0", "1/1", "0/0", "1/1"],
+        },
+    ]
+    original_vcf = tmp_path / "orig_ovl_err.vcf"
+    write_vcf(original_vcf, samples, variants)
+
+    out_prefix = tmp_path / "out_ovl_err"
+    import pytest
+
+    with pytest.raises(subprocess.CalledProcessError):
+        run_mdsearch(
+            original_vcf,
+            out_prefix,
+            seed=1,
+            tries=5,
+            cpus=2,
+            ploidy=2,
+            total_snps=0,
+            min_dist=1,
+            n_sets=2,
+            overlap_max_number=1,
+            overlap_max_fraction=0.5,
+        )
+
+
+def test_triploid_ploidy_handling(tmp_path: Path):
+    samples = ["S1", "S2", "S3", "S4"]
+    # Triploid: use 3 alleles per sample, with only 0 and 1 allele indices
+    variants = [
+        {
+            "chrom": "1",
+            "pos": 100,
+            "id": "A",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/0/0", "0/0/0", "1/1/1", "1/1/1"],
+        },
+        {
+            "chrom": "1",
+            "pos": 200,
+            "id": "B",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/0/0", "1/1/1", "0/0/0", "1/1/1"],
+        },
+        # Heterozygous triploid
+        {
+            "chrom": "1",
+            "pos": 300,
+            "id": "H",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/1/1", "././.", "0/1/1", "././."],
+        },
+    ]
+    original_vcf = tmp_path / "orig_pl3.vcf"
+    write_vcf(original_vcf, samples, variants)
+
+    out_prefix = tmp_path / "out_pl3"
+    run_mdsearch(
+        original_vcf,
+        out_prefix,
+        seed=1,
+        tries=20,
+        cpus=2,
+        ploidy=3,
+        total_snps=0,
+        min_dist=1,
+        n_sets=1,
+    )
+    produced = out_prefix.with_name(out_prefix.name + "_1.vcf")
+    assert produced.exists()
+    assert_discriminative(produced, ploidy=3, min_dist=1, convert_het=False)
