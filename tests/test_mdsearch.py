@@ -833,6 +833,56 @@ def test_multiallelic_site_causes_error_exit(tmp_path: Path):
         )
 
 
+def test_empty_vcf_causes_error_exit(tmp_path: Path):
+    samples = ["S1", "S2"]
+    # Write VCF with headers only, no variant lines
+    empty_vcf = tmp_path / "orig_empty.vcf"
+    write_vcf(empty_vcf, samples, [])
+
+    out_prefix = tmp_path / "out_empty"
+    import pytest
+
+    with pytest.raises(subprocess.CalledProcessError):
+        run_mdsearch(
+            empty_vcf,
+            out_prefix,
+            ploidy=2,
+            total_snps=0,
+            min_dist=1,
+            n_sets=1,
+        )
+
+
+def test_single_sample_vcf_causes_error_exit(tmp_path: Path):
+    # Single-sample header should fail during header validation (need >= 2 samples)
+    samples = ["S1"]
+    variants = [
+        {
+            "chrom": "1",
+            "pos": 100,
+            "id": "A",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/0"],
+        }
+    ]
+    single_vcf = tmp_path / "orig_single.vcf"
+    write_vcf(single_vcf, samples, variants)
+
+    out_prefix = tmp_path / "out_single"
+    import pytest
+
+    with pytest.raises(subprocess.CalledProcessError):
+        run_mdsearch(
+            single_vcf,
+            out_prefix,
+            ploidy=2,
+            total_snps=0,
+            min_dist=1,
+            n_sets=1,
+        )
+
+
 def test_total_snps_lower_than_minimal_kept_at_min(tmp_path: Path):
     samples = ["S1", "S2", "S3", "S4"]
     variants = [
