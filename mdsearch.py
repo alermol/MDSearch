@@ -3,7 +3,7 @@ import sys
 import logging
 import time
 import json
-
+from typing import List, Dict, Set, Optional, Union, Any
 
 import numpy as np
 from itertools import combinations
@@ -26,20 +26,20 @@ class MDSearch:
 
     def __init__(
         self,
-        in_vcf,
-        out_vcf,
-        ploidy=None,
-        max_snps=None,
-        min_dist=None,
-        convert_het=None,
-        n_sets=None,
+        in_vcf: Path,
+        out_vcf: Path,
+        ploidy: Optional[int] = None,
+        max_snps: Optional[int] = None,
+        min_dist: Optional[int] = None,
+        convert_het: Optional[bool] = None,
+        n_sets: Optional[int] = None,
         overlap_max_number: int = -1,
         overlap_max_fraction: float = -1.0,
         verbose: bool = True,
-        log_level: str | None = None,
+        log_level: Optional[str] = None,
         log_format: str = "text",
-        summary_tsv: Path | None = None,
-    ):
+        summary_tsv: Optional[Path] = None,
+    ) -> None:
         self.in_vcf = in_vcf
         self.out_vcf = out_vcf
         self.ploidy = ploidy
@@ -60,7 +60,7 @@ class MDSearch:
 
                 class JsonFormatter(logging.Formatter):
                     def format(self, record: logging.LogRecord) -> str:  # type: ignore[override]
-                        payload: dict = {
+                        payload: Dict[str, Any] = {
                             "level": record.levelname,
                             "message": record.getMessage(),
                             "time": time.strftime(
@@ -96,8 +96,8 @@ class MDSearch:
             sys.exit("-ns (number of sets) must be >= 1")
 
         # calculate target number of genotypes and create list containing genotype for each SNP
-        self.snp_genotypes = {}
-        self.snp_maf_cache: dict[str, float] = {}
+        self.snp_genotypes: Dict[str, List[Union[List[float], List[str]]]] = {}
+        self.snp_maf_cache: Dict[str, float] = {}
         self._parse_and_validate_vcf()
         self.main()
 
@@ -267,7 +267,9 @@ class MDSearch:
         parts = sample_field.split(":")
         return parts[gt_index] if gt_index < len(parts) else "."
 
-    def _gt_to_value(self, gt: str, ploidy: int, convert_het: bool) -> float:
+    def _gt_to_value(
+        self, gt: str, ploidy: Optional[int], convert_het: Optional[bool]
+    ) -> float:
         """Convert GT string to numeric value based on ploidy and het conversion."""
         if "." in gt:
             return np.nan
@@ -286,7 +288,7 @@ class MDSearch:
         return np.nan if convert_het else count_alt / float(ploidy)
 
     @staticmethod
-    def _calculate_maf(geno: list, ploidy: int) -> float:
+    def _calculate_maf(geno: List[float], ploidy: Optional[int]) -> float:
         """Compute minor allele frequency for a SNP given numeric genotypes."""
         allele0 = 0.0
         allele1 = 0.0
@@ -307,7 +309,7 @@ class MDSearch:
             return 0.0
         return min(allele0 / total_alleles, allele1 / total_alleles)
 
-    def _calc_min_dist(self, snps: list) -> float:
+    def _calc_min_dist(self, snps: List[List[float]]) -> float:
         """Return minimal pairwise Hamming distance across samples for given SNPs.
 
         Optimized: compute only upper-triangle pairwise distances (j > i) and avoid
@@ -341,7 +343,7 @@ class MDSearch:
             )
         return float(np.min(res))
 
-    def select_first_snp(self, excluded: set | None = None) -> str:
+    def select_first_snp(self, excluded: Optional[Set[str]] = None) -> str:
         """Select SNP with highest MAF not in excluded; tie-break by SNP ID."""
         # select SNP with max MAF; deterministic tie-breaker by SNP ID asc
         excluded = excluded or set()
@@ -363,7 +365,7 @@ class MDSearch:
         alleles = [a for a in gt.replace("|", "/").split("/") if a != ""]
         return len(set(alleles)) > 1
 
-    def _calc_min_dist_for_set_ids(self, snp_ids: list[str]) -> float:
+    def _calc_min_dist_for_set_ids(self, snp_ids: List[str]) -> float:
         """Helper computing minimal distance for a list of SNP IDs."""
         if not snp_ids:
             return 0.0
@@ -373,11 +375,11 @@ class MDSearch:
     class BuildError(Exception):
         pass
 
-    def _build_primary_set(self, excluded: set | None = None) -> list[str]:
+    def _build_primary_set(self, excluded: Optional[Set[str]] = None) -> List[str]:
         """Greedily build initial SNP set maximizing MAF under exclusions."""
         excluded = excluded or set()
-        current_snp_set: list[str] = []
-        current_snps_geno = []
+        current_snp_set: List[str] = []
+        current_snps_geno: List[List[float]] = []
 
         # choose first snp
         current_snp = self.select_first_snp(excluded=excluded)
@@ -415,7 +417,7 @@ class MDSearch:
             )
         return current_snp_set
 
-    def _deterministic_eliminate(self, snp_set: list[str]) -> list[str]:
+    def _deterministic_eliminate(self, snp_set: List[str]) -> List[str]:
         """Greedy backward elimination preserving minimal distance constraint.
 
         Optimized to avoid repeated distance recomputation by precomputing per-SNP
@@ -425,7 +427,7 @@ class MDSearch:
         if self.verbose:
             self.logger.info("Backward one-by-one elimination (deterministic)...")
 
-        optimized_ids: list[str] = list(snp_set)
+        optimized_ids: List[str] = list(snp_set)
         # Build matrix (rows=SNPs, cols=samples) in current order
         snps_matrix = np.array([self.snp_genotypes[sid][0] for sid in optimized_ids])
         num_snps, num_samples = snps_matrix.shape
@@ -473,7 +475,7 @@ class MDSearch:
                     contrib_matrix = np.delete(contrib_matrix, idx, axis=0)
         return optimized_ids
 
-    def optimal_snp_set_search(self) -> list[list[str]]:
+    def optimal_snp_set_search(self) -> List[List[str]]:
         """Find up to n_sets minimal discriminating SNP lists under constraints."""
         # Base minimal set
         try:
@@ -486,7 +488,7 @@ class MDSearch:
         unique_sets = []
         seen = set()
 
-        def add_set(s):
+        def add_set(s: List[str]) -> None:
             key = tuple(sorted(s))
             if key not in seen:
                 seen.add(key)
@@ -577,7 +579,7 @@ class MDSearch:
                     )
         return best_snp_sets_final
 
-    def write_vcf(self, snp_sets_list: list[list[str]]) -> None:
+    def write_vcf(self, snp_sets_list: List[List[str]]) -> None:
         """Write each SNP set to a separate VCF suffixed by index starting at 1."""
         for si, s in enumerate(snp_sets_list, start=1):
             with open(self.in_vcf) as invcf, open(
@@ -628,7 +630,7 @@ class MDSearch:
                         else:
                             continue
 
-    def write_summary_tsv(self, snp_sets_list: list[list[str]]) -> None:
+    def write_summary_tsv(self, snp_sets_list: List[List[str]]) -> None:
         """Emit a TSV summary with per-set stats if a summary path is provided."""
         if not self.summary_tsv:
             return
