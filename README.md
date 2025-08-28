@@ -8,8 +8,10 @@
 * Customizable **minimal Hamming distance** between samples
 * Selects **core discriminatory SNP sets** and can **expand them** with additional polymorphic SNPs
 * Generates **multiple distinct SNP sets** for validation
-* Efficient **parallel processing** with multi-threading support
+* **Overlap constraints** for alternative set generation (`-oMx`, `-oMf`)
 * Flexible handling of **heterozygous calls** (convertible to NA)
+* **Structured logging** with text/JSON output formats
+* **Optional TSV summaries** with per-set statistics
 
 
 ## Table of Contents
@@ -38,15 +40,15 @@ MDSearch employs a two-phase optimization approach:
    Sequentially adds SNPs with highest Minor Allele Frequency (MAF) until all samples are distinguishable at the specified minimal Hamming distance. SNPs with MAF closest to 0.5 are prioritized for maximum discriminative power.
 
 2. **Backward Elimination Phase**  
-   Iteratively removes SNPs from the preliminary set while maintaining the required discriminative ability. Uses random elimination with multiple trials to find minimal sets.
+   Iteratively removes SNPs from the preliminary set while maintaining the required discriminative ability. Uses deterministic elimination to find minimal sets.
 
 The final step optionally expands the minimal set with additional polymorphic SNPs (using Polymorphism Information Content, PIC) to reach a user-specified size.
 
 
 ## Requirements
-- Python 3.x
+- Python 3.8+
 - NumPy
-- Standard Python libraries (multiprocessing, re, random, pathlib)
+- Standard Python libraries (pathlib, logging, time, json, sys, itertools, math)
 
 
 ## Installation
@@ -65,28 +67,52 @@ python mdsearch.py input.vcf output_prefix
 
 ### Advanced Options
 ```bash
-usage: mdsearch.py [-h] [-pl PLOIDY] [-ts TOTAL SNP]
-                   [-md MIN DIST] [-ch] [-ns N SETS] ivcf ovcf_prefix
+usage: mdsearch.py [-h] [-pl PLOIDY] [-ts TOTAL_SNP] [-md MIN_DIST] [-ch] [-ns N_SETS]
+                   [-oMx OVERLAP_MAX_N] [-oMf OVERLAP_MAX_FRAC] [--quiet]
+                   [--log-level {DEBUG,INFO,WARNING,ERROR}] [--log-format {text,json}]
+                   [--summary-tsv SUMMARY_TSV]
+                   IVCF OVCF_PREFIX
 
 positional arguments:
-  ivcf           input vcf file
-  ovcf_prefix    prefix of output vcf file
+  IVCF                  Input VCF file (bi-allelic, with SNP IDs)
+  OVCF_PREFIX           Prefix for output VCF(s)
 
 options:
-  -h, --help     Show help message
-  -pl PLOIDY     Sample ploidy (default: 2)
-  -ts TOTAL SNP  Total SNPs in output (minimal set)
-  -md MIN DIST   Minimal Hamming distance (default: 1)
-  -ch            Convert heterozygotes to NA
-  -ns N SETS     Number of output sets (default: 1)
+  -h, --help            Show help message and exit
+  -pl PLOIDY            VCF ploidy (default: 2)
+  -ts TOTAL_SNP         Total SNPs in output set (0 = keep minimal; default: 0)
+  -md MIN_DIST          Minimal Hamming distance between samples (default: 1)
+  -ch                   Convert heterozygous calls into NA (default: False)
+  -ns N_SETS            Number of distinct SNP sets in output (default: 1)
+  -oMx OVERLAP_MAX_N    Maximum overlap count for alternative sets (-1 = unlimited)
+  -oMf OVERLAP_MAX_FRAC Maximum overlap fraction for alternative sets (-1 = unlimited)
+  --quiet               Suppress progress output (default: False)
+  --log-level {DEBUG,INFO,WARNING,ERROR}
+                        Logging level (default depends on --quiet)
+  --log-format {text,json}
+                        Logging format: text or json (default: text)
+  --summary-tsv SUMMARY_TSV
+                        Write per-set summary TSV to specified path
 ```
 
-### Example
+### Examples
+
+#### Basic Usage
 ```bash
 python mdsearch.py data.vcf results -pl 2 -ts 50 -md 2 -ch -ns 3
 ```
 
-This command will:
+#### Advanced Usage with Logging and Summaries
+```bash
+python mdsearch.py data.vcf results -md 2 -ns 3 -oMx 1 --log-level INFO --summary-tsv results_summary.tsv
+```
+
+#### JSON Logging for Automated Pipelines
+```bash
+python mdsearch.py data.vcf results --log-format json --quiet --summary-tsv results.tsv
+```
+
+The first command will:
 - Assume a ploidy of 2
 - Expand the final SNP set to 50 SNPs
 - Ensure a minimum Hamming distance of 2 between samples
@@ -101,6 +127,14 @@ Generates one or more VCF files containing only selected discriminative SNPs:
 
 Each file maintains original VCF format while including only selected SNPs.
 
+### Optional TSV Summary
+When `--summary-tsv` is specified, generates a summary file with columns:
+- `set_index`: Set number (1, 2, 3...)
+- `output_vcf`: Path to corresponding VCF file
+- `num_snps`: Number of SNPs in the set
+- `min_distance`: Achieved minimum Hamming distance
+- `snp_ids`: Comma-separated list of selected SNP IDs
+
 Only `results_1.vcf` will be generated with `-ns 1` option.
 
 ## Notes
@@ -109,21 +143,38 @@ Only `results_1.vcf` will be generated with `-ns 1` option.
 - Typical minimal distances:
   - `-md 1` for basic discrimination
   - `-md 2-3` for more robust discrimination
+- **Overlap constraints for multiple sets:**
+  - `-oMx N` limits alternative sets to at most N SNPs in common with the base set
+  - `-oMf F` limits alternative sets to at most fraction F overlap with the base set
+  - These options are mutually exclusive
+- **Logging options:**
+  - `--quiet` suppresses progress output
+  - `--log-level` controls verbosity (DEBUG, INFO, WARNING, ERROR)
+  - `--log-format json` outputs structured logs for automated pipelines
 - The script `generate_snp_passport.py` in the `scripts` folder will generate a human-readable passport in the following format:
   > sample_name: Chr:Coordinate(SNP_genotype); Chr:Coordinate(SNP_genotype); Chr:Coordinate(SNP_genotype)
 
 ## Testing
 Run the test suite (make sure the `mdsearch` environment is active):
 ```bash
-pytest -q
+# Run all tests
+pytest -v
+
+# Run tests without saving VCF artifacts  
+MDSEARCH_SAVE_VCFS=0 pytest -v
 ```
 
-The tests generate synthetic VCFs exercising:
-- Different genotype ploidy handling (`--pl`)
+The comprehensive test suite (17 tests) covers:
+- Different genotype ploidy handling (including haploid)
 - Expansion to a target total SNP count (`-ts`)
 - Enforcing minimal Hamming distance (`-md`)
 - Correct handling of heterozygous genotypes in distance calculation (`-ch`)
-- Producing multiple distinct discriminative SNP sets (`-ns`)
+- Multiple distinct discriminative SNP sets (`-ns`)
+- Overlap constraints (`-oMx`, `-oMf`)
+- Phased and unphased VCF handling
+- Multi-field FORMAT parsing (GT:DP:GQ)
+- Multiallelic site detection and rejection
+- TSV summary generation
 
 ## License
 This project is open-source and available under the MIT License.
