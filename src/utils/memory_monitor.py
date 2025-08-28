@@ -65,9 +65,7 @@ class MemoryMonitor:
                 f"Available: {available_mb:.1f}MB. Monitor for potential issues."
             )
         else:
-            self.logger.debug(
-                f"Memory usage during {operation}: {current_mb:.1f}MB. "
-            )
+            self.logger.debug(f"Memory usage during {operation}: {current_mb:.1f}MB. ")
 
     def estimate_matrix_memory_mb(self, num_snps: int, num_samples: int) -> float:
         """Estimate memory usage for genotype matrix in MB."""

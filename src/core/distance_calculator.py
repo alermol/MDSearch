@@ -1,7 +1,7 @@
 """Hamming distance calculation optimized for large datasets."""
 
 import logging
-from typing import List, Dict
+from typing import List, Protocol
 
 import numpy as np
 from numpy.typing import NDArray
@@ -9,7 +9,13 @@ from numpy.typing import NDArray
 from ..utils.memory_monitor import MemoryMonitor
 from .vcf_parser import SNPData
 
-__all__ = ["DistanceCalculator"]
+__all__ = ["DistanceCalculator", "SNPDataMapping"]
+
+
+class SNPDataMapping(Protocol):
+    """Protocol for objects that provide SNP data access like dict[str, SNPData]."""
+    
+    def __getitem__(self, key: str) -> SNPData: ...
 
 
 class DistanceCalculator:
@@ -65,7 +71,7 @@ class DistanceCalculator:
 
         return float(np.min(res))
     
-    def calc_distance_for_snp_ids(self, snp_ids: List[str], snp_data: Dict[str, SNPData]) -> float:
+    def calc_distance_for_snp_ids(self, snp_ids: List[str], snp_data: SNPDataMapping) -> float:
         """Helper computing minimal distance for a list of SNP IDs."""
         if not snp_ids:
             return 0.0

@@ -16,9 +16,7 @@ def extract_gt(format_field: str, sample_field: str) -> str:
     return parts[gt_index] if gt_index < len(parts) else "."
 
 
-def gt_to_value(
-    gt: str, ploidy: Optional[int], convert_het: Optional[bool]
-) -> float:
+def gt_to_value(gt: str, ploidy: Optional[int], convert_het: Optional[bool]) -> float:
     """Convert GT string to numeric value based on ploidy and het conversion."""
     if "." in gt:
         return np.nan
@@ -43,7 +41,7 @@ def calculate_maf(geno: List[float], ploidy: Optional[int]) -> float:
     """Compute minor allele frequency for a SNP given numeric genotypes."""
     if ploidy is None:
         return 0.0
-        
+
     allele0 = 0.0
     allele1 = 0.0
     valid_genotypes = 0

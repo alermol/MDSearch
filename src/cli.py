@@ -124,6 +124,20 @@ def create_parser() -> argparse.ArgumentParser:
         metavar="SUMMARY_TSV",
     )
 
+    # Memory optimization options
+    parser.add_argument(
+        "--lazy-loading",
+        help="Use lazy loading for large VCF files to reduce memory usage",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--cache-size",
+        help="Number of SNPs to keep in memory cache when using lazy loading (default: 1000)",
+        type=int,
+        default=1000,
+        metavar="CACHE_SIZE",
+    )
+
     return parser
 
 
@@ -151,6 +165,8 @@ def main() -> None:
         log_level=args.log_level,
         log_format=args.log_format,
         summary_tsv=args.summary_tsv,
+        lazy_loading=args.lazy_loading,
+        cache_size=args.cache_size,
     )
 
     # Run application

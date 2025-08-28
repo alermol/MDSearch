@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass, field
 
-from .core import VCFParser, DistanceCalculator, SNPSelector
+from .core import VCFParser, DistanceCalculator, SNPSelector, LazyVCFData, VCFDataType
 from .core.snp_selector import OverlapConstraints
 from .io import VCFWriter, WriteConfig, SummaryWriter
 from .utils import MemoryMonitor, setup_logger
@@ -29,6 +29,8 @@ class MDSearchConfig:
     log_level: Optional[str] = None
     log_format: str = "text"
     summary_tsv: Optional[Path] = None
+    lazy_loading: bool = True  # Enable lazy loading by default for better memory usage
+    cache_size: int = 1000  # Number of SNPs to keep in memory cache
 
 
 class MDSearchApp:
@@ -55,10 +57,19 @@ class MDSearchApp:
 
     def run(self) -> None:
         """Execute the complete MDSearch pipeline."""
-        # 1. Parse and validate VCF
-        vcf_data = self.vcf_parser.parse_and_validate(
-            self.config.input_vcf, self.config.ploidy, self.config.convert_het
-        )
+        # 1. Parse and validate VCF (with optional lazy loading)
+        vcf_data: VCFDataType
+        if self.config.lazy_loading:
+            vcf_data = self.vcf_parser.parse_and_validate_lazy(
+                self.config.input_vcf,
+                self.config.ploidy,
+                self.config.convert_het,
+                self.config.cache_size,
+            )
+        else:
+            vcf_data = self.vcf_parser.parse_and_validate(
+                self.config.input_vcf, self.config.ploidy, self.config.convert_het
+            )
 
         # 2. Search for optimal SNP sets
         snp_sets = self.snp_selector.search_optimal_sets(
@@ -103,8 +114,16 @@ class MDSearchApp:
             if self.logger.isEnabledFor(logging.INFO):
                 self.logger.info(f"Summary TSV written: {self.config.summary_tsv}")
 
-        # Final memory usage summary
+        # Final memory usage summary and cache statistics
         self.memory_monitor.check_memory_and_warn("processing complete")
         if self.logger.isEnabledFor(logging.INFO):
             final_memory = self.memory_monitor.get_memory_usage_mb()
             self.logger.info(f"Final memory usage: {final_memory:.1f}MB")
+
+            # Log cache statistics for lazy loading
+            if self.config.lazy_loading and isinstance(vcf_data, LazyVCFData):
+                cache_stats = vcf_data.get_cache_stats()
+                self.logger.info(
+                    f"Lazy loading cache stats: {cache_stats['cache_size']}/{cache_stats['max_cache_size']} "
+                    f"SNPs cached ({cache_stats['total_snps']} total SNPs)"
+                )

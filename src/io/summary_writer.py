@@ -1,11 +1,11 @@
 """TSV summary file output operations."""
 
 from pathlib import Path
-from typing import List
+from typing import List, Union
 from dataclasses import dataclass
 
 from ..core.distance_calculator import DistanceCalculator
-from ..core.vcf_parser import VCFData
+from ..core.vcf_parser import VCFData, LazyVCFData
 
 __all__ = ["SetStatistics", "SummaryWriter"]
 
@@ -30,7 +30,7 @@ class SummaryWriter:
                      snp_sets: List[List[str]], 
                      output_prefix: Path,
                      output_path: Path,
-                     vcf_data: VCFData) -> None:
+                     vcf_data: Union[VCFData, LazyVCFData]) -> None:
         """Write per-set summary statistics to TSV."""
         header = [
             "set_index",
