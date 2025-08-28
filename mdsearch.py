@@ -8,7 +8,7 @@ that can discriminate between samples in a VCF file based on a specified minimum
 This is the main entry point for the modular version of MDSearch.
 """
 
-from mdsearch.cli import main
+from src.cli import main
 
 if __name__ == "__main__":
     main()
