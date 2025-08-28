@@ -6,7 +6,8 @@ import numpy as np
 
 
 def _artifacts_enabled() -> bool:
-    return bool(os.getenv("MDSEARCH_SAVE_VCFS"))
+    value = os.getenv("MDSEARCH_SAVE_VCFS", "0")
+    return value.lower() in ("1", "true", "yes", "on")
 
 
 def _project_root() -> Path:
