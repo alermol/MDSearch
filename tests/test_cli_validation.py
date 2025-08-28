@@ -2,6 +2,7 @@ import subprocess
 from pathlib import Path
 import pytest
 import sys
+import json
 
 from .helpers import write_vcf
 
@@ -154,3 +155,51 @@ def test_lazy_loading_and_cache_size_run(tmp_path: Path):
         "10",
     ]
     _run_raw(args)
+
+
+def test_json_logging_emits_structured_lines(tmp_path: Path):
+    ivcf = _make_minimal_vcf(tmp_path)
+    out_prefix = tmp_path / "out_cli_jsonlog"
+    args = [
+        sys.executable,
+        str(Path(__file__).resolve().parents[1] / "mdsearch.py"),
+        str(ivcf),
+        str(out_prefix),
+        "--log-level",
+        "INFO",
+        "--log-format",
+        "json",
+    ]
+    # Capture stderr where logs are typically sent
+    proc = subprocess.run(
+        args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
+    stderr = proc.stderr.strip().splitlines()
+    # Find at least one JSON object line
+    json_like = [l for l in stderr if l.startswith("{") and l.endswith("}")]
+    assert json_like, f"expected JSON log lines, got: {stderr[:5]}"
+    # Basic keys presence check
+
+    obj = json.loads(json_like[0])
+    assert "level" in obj and obj["level"] in {"INFO", "DEBUG", "WARNING", "ERROR"}
+    assert "message" in obj
+
+
+def test_text_logging_emits_bracketed_levels(tmp_path: Path):
+    ivcf = _make_minimal_vcf(tmp_path)
+    out_prefix = tmp_path / "out_cli_textlog"
+    args = [
+        sys.executable,
+        str(Path(__file__).resolve().parents[1] / "mdsearch.py"),
+        str(ivcf),
+        str(out_prefix),
+        "--log-level",
+        "INFO",
+        "--log-format",
+        "text",
+    ]
+    proc = subprocess.run(
+        args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
+    stderr = proc.stderr
+    assert "[INFO]" in stderr
