@@ -1,0 +1,156 @@
+import subprocess
+from pathlib import Path
+import pytest
+import sys
+
+from .helpers import write_vcf
+
+
+def _run_raw(args: list[str]) -> None:
+    subprocess.run(args, check=True)
+
+
+def _make_minimal_vcf(tmp_path: Path) -> Path:
+    samples = ["S1", "S2"]
+    variants = [
+        {
+            "chrom": "1",
+            "pos": 100,
+            "id": "A",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/0", "1/1"],
+        },
+        {
+            "chrom": "1",
+            "pos": 200,
+            "id": "B",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["1/1", "0/0"],
+        },
+    ]
+    ivcf = tmp_path / "cli_min.vcf"
+    write_vcf(ivcf, samples, variants)
+    return ivcf
+
+
+def _run(ivcf: Path, out_prefix: Path, **kwargs):
+
+    args = [
+        sys.executable,
+        str(Path(__file__).resolve().parents[1] / "mdsearch.py"),
+        str(ivcf),
+        str(out_prefix),
+    ]
+    cli_map = {
+        "ploidy": "-pl",
+        "total_snps": "-ts",
+        "min_dist": "-md",
+        "convert_het": "-ch",
+        "n_sets": "-ns",
+        "overlap_max_number": "-oMx",
+        "overlap_max_fraction": "-oMf",
+        "summary_tsv": "--summary-tsv",
+    }
+    for k, v in kwargs.items():
+        flag = cli_map[k]
+        if isinstance(v, bool):
+            if v:
+                args.append(flag)
+        else:
+            args.extend([flag, str(v)])
+    subprocess.run(args, check=True)
+
+
+def test_negative_total_snps_errors(tmp_path: Path):
+    ivcf = _make_minimal_vcf(tmp_path)
+    out_prefix = tmp_path / "out_cli_tsneg"
+
+    with pytest.raises(subprocess.CalledProcessError):
+        _run(ivcf, out_prefix, ploidy=2, total_snps=-1, min_dist=1, n_sets=1)
+
+
+def test_zero_sets_errors(tmp_path: Path):
+    ivcf = _make_minimal_vcf(tmp_path)
+    out_prefix = tmp_path / "out_cli_ns0"
+
+    with pytest.raises(subprocess.CalledProcessError):
+        _run(ivcf, out_prefix, ploidy=2, total_snps=0, min_dist=1, n_sets=0)
+
+
+def test_quiet_flag_runs(tmp_path: Path):
+    ivcf = _make_minimal_vcf(tmp_path)
+    out_prefix = tmp_path / "out_cli_quiet"
+    _run(ivcf, out_prefix, ploidy=2, total_snps=0, min_dist=1, n_sets=1)
+    # Now with quiet flag
+    args = [
+        sys.executable,
+        str(Path(__file__).resolve().parents[1] / "mdsearch.py"),
+        str(ivcf),
+        str(out_prefix),
+        "--quiet",
+    ]
+    _run_raw(args)
+
+
+def test_log_level_and_format_flags_run(tmp_path: Path):
+    ivcf = _make_minimal_vcf(tmp_path)
+    out_prefix = tmp_path / "out_cli_logfmt"
+    args = [
+        sys.executable,
+        str(Path(__file__).resolve().parents[1] / "mdsearch.py"),
+        str(ivcf),
+        str(out_prefix),
+        "--log-level",
+        "DEBUG",
+        "--log-format",
+        "json",
+    ]
+    _run_raw(args)
+
+
+def test_invalid_log_level_choice_errors(tmp_path: Path):
+    ivcf = _make_minimal_vcf(tmp_path)
+    out_prefix = tmp_path / "out_cli_badlog"
+    args = [
+        sys.executable,
+        str(Path(__file__).resolve().parents[1] / "mdsearch.py"),
+        str(ivcf),
+        str(out_prefix),
+        "--log-level",
+        "FOO",
+    ]
+    with pytest.raises(subprocess.CalledProcessError):
+        _run_raw(args)
+
+
+def test_summary_tsv_flag_writes_file(tmp_path: Path):
+    ivcf = _make_minimal_vcf(tmp_path)
+    out_prefix = tmp_path / "out_cli_summary"
+    summary = tmp_path / "cli_summary.tsv"
+    _run(
+        ivcf,
+        out_prefix,
+        ploidy=2,
+        total_snps=0,
+        min_dist=1,
+        n_sets=1,
+        summary_tsv=summary,
+    )
+    assert summary.exists()
+
+
+def test_lazy_loading_and_cache_size_run(tmp_path: Path):
+    ivcf = _make_minimal_vcf(tmp_path)
+    out_prefix = tmp_path / "out_cli_lazy"
+    args = [
+        sys.executable,
+        str(Path(__file__).resolve().parents[1] / "mdsearch.py"),
+        str(ivcf),
+        str(out_prefix),
+        "--lazy-loading",
+        "--cache-size",
+        "10",
+    ]
+    _run_raw(args)
