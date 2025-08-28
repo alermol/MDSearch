@@ -1,10 +1,11 @@
 """Hamming distance calculation optimized for large datasets."""
 
 import logging
-from typing import List, Protocol
+from typing import List, Protocol, Optional
 
 import numpy as np
 from numpy.typing import NDArray
+from tqdm import tqdm
 
 from ..utils.memory_monitor import MemoryMonitor
 from .vcf_parser import SNPData
@@ -21,9 +22,10 @@ class SNPDataMapping(Protocol):
 class DistanceCalculator:
     """Optimized Hamming distance calculations."""
     
-    def __init__(self, memory_monitor: MemoryMonitor, logger: logging.Logger):
+    def __init__(self, memory_monitor: MemoryMonitor, logger: logging.Logger, show_progress: bool = True):
         self.memory_monitor = memory_monitor
         self.logger = logger
+        self.show_progress = show_progress
     
     def calc_min_distance(self, snps: List[List[float]]) -> float:
         """Return minimal pairwise Hamming distance across samples for given SNPs.
@@ -48,7 +50,17 @@ class DistanceCalculator:
                 self.logger.info("Distance between samples (min/med/avg/max): 0/0/0/0")
             return 0.0
             
-        for i in range(num_samples - 1):
+        # Create progress bar for sample comparisons
+        sample_range = range(num_samples - 1)
+        if self.show_progress and num_samples > 10:  # Only show for larger datasets
+            sample_range = tqdm(
+                sample_range,
+                desc="Computing pairwise distances",
+                unit="sample",
+                leave=False
+            )
+        
+        for i in sample_range:
             col_i = snps_array[:, i][:, None]  # (num_snps, 1)
             rest = snps_array[:, i + 1 :]  # (num_snps, num_samples - i - 1)
             if rest.shape[1] == 0:

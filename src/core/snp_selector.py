@@ -9,6 +9,7 @@ from math import floor
 
 import numpy as np
 from numpy.typing import NDArray
+from tqdm import tqdm
 
 from .distance_calculator import DistanceCalculator
 from .vcf_parser import VCFData, LazyVCFData
