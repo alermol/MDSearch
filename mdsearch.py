@@ -542,6 +542,17 @@ class MDSearch:
     def main(self) -> None:
         """Entrypoint: search optimal SNP sets and write them to VCF files."""
         selected_snps = self.optimal_snp_set_search()
+
+        # Log selected SNP details at INFO level when not using TSV summary
+        if not self.summary_tsv:
+            for si, s in enumerate(selected_snps, start=1):
+                min_d = self._calc_min_dist_for_set_ids(s)
+                snp_ids_str = ",".join(sorted(s))
+                self.logger.info(
+                    f"Set {si}: {len(s)} SNPs, min_distance={int(min_d)}, "
+                    f"SNP_IDs=[{snp_ids_str}]"
+                )
+
         if self.verbose:
             self.logger.info("Writing selected SNPs in VCF...")
         self.write_vcf(selected_snps)
