@@ -3,6 +3,8 @@
 import sys
 import argparse
 
+__all__ = ["validate_cli_arguments", "validate_overlap_constraints"]
+
 
 def validate_cli_arguments(args: argparse.Namespace) -> None:
     """Validate CLI argument combinations and constraints."""

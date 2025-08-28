@@ -14,6 +14,8 @@ from .distance_calculator import DistanceCalculator
 from .vcf_parser import VCFData, SNPData
 from ..utils.memory_monitor import MemoryMonitor
 
+__all__ = ["OverlapConstraints", "BuildError", "SNPSelector"]
+
 
 @dataclass
 class OverlapConstraints:

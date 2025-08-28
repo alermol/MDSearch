@@ -5,6 +5,8 @@ import time
 import json
 from typing import Optional
 
+__all__ = ["JsonFormatter", "setup_logger"]
+
 
 class JsonFormatter(logging.Formatter):
     """Custom JSON formatter for structured logging."""

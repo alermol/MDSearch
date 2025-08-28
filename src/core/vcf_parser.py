@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from ..utils.memory_monitor import MemoryMonitor
 from .genotype_utils import extract_gt, gt_to_value, calculate_maf
 
+__all__ = ["VCFHeaders", "SNPData", "VCFData", "VCFParser"]
+
 
 @dataclass
 class VCFHeaders:

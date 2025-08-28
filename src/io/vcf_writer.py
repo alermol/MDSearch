@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 from ..core.genotype_utils import extract_gt, is_het
 
+__all__ = ["WriteConfig", "VCFWriter"]
+
 
 @dataclass
 class WriteConfig:

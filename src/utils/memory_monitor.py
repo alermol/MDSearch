@@ -6,6 +6,8 @@ from typing import Dict
 
 import psutil
 
+__all__ = ["MemoryMonitor"]
+
 
 class MemoryMonitor:
     """Utility class for monitoring memory usage and providing warnings."""

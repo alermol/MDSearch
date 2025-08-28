@@ -7,6 +7,8 @@ from .app import MDSearchApp, MDSearchConfig
 from .core.snp_selector import OverlapConstraints
 from .utils.validation import validate_cli_arguments
 
+__all__ = ["parser_resolve_path", "create_parser", "main"]
+
 
 def parser_resolve_path(path: str) -> Path:
     """Resolve CLI-provided path string to an absolute Path."""

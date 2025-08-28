@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from ..core.distance_calculator import DistanceCalculator
 from ..core.vcf_parser import VCFData
 
+__all__ = ["SetStatistics", "SummaryWriter"]
+
 
 @dataclass
 class SetStatistics:

@@ -3,6 +3,8 @@
 from typing import List, Optional
 import numpy as np
 
+__all__ = ["extract_gt", "gt_to_value", "calculate_maf", "is_het"]
+
 
 def extract_gt(format_field: str, sample_field: str) -> str:
     """Extract GT subfield from sample data."""

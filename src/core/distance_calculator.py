@@ -9,6 +9,8 @@ from numpy.typing import NDArray
 from ..utils.memory_monitor import MemoryMonitor
 from .vcf_parser import SNPData
 
+__all__ = ["DistanceCalculator"]
+
 
 class DistanceCalculator:
     """Optimized Hamming distance calculations."""
