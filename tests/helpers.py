@@ -164,5 +164,5 @@ def save_out_prefix_vcfs(out_prefix: Path, subdir: str = ""):
     stem = out_prefix.name
     for f in out_dir.glob(f"{stem}_*.vcf"):
         save_artifact(f, subdir=subdir)
-    for f in out_dir.glob(f"summary.tsv"):
+    for f in out_dir.glob("summary.tsv"):
         save_artifact(f, subdir=subdir)
