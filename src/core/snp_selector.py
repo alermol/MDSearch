@@ -72,6 +72,8 @@ class SNPSelector:
         vcf_data: VCFDataType,
         min_distance: int,
         excluded: Optional[Set[str]] = None,
+        log_start: bool = True,
+        log_distances: bool = True,
     ) -> List[str]:
         """Greedily build initial SNP set maximizing MAF under exclusions."""
         excluded = excluded or set()
@@ -83,12 +85,15 @@ class SNPSelector:
         current_snps_geno.append(vcf_data.snp_genotypes[current_snp].genotypes)
         current_snp_set.append(current_snp)
 
-        if self.logger.isEnabledFor(logging.INFO):
+        if log_start and self.logger.isEnabledFor(logging.INFO):
             self.logger.info("Primary SNP selection...")
 
         # Identify primary set of SNPs deterministically with tie-breakers
-        while self.distance_calc.calc_min_distance(current_snps_geno) < min_distance:
-            if self.logger.isEnabledFor(logging.INFO):
+        while (
+            self.distance_calc.calc_min_distance(current_snps_geno, log=log_distances)
+            < min_distance
+        ):
+            if log_distances and self.logger.isEnabledFor(logging.INFO):
                 self.logger.info(
                     f"Current SNP set contains {len(current_snp_set)} SNPs..."
                 )
@@ -108,14 +113,18 @@ class SNPSelector:
             current_snps_geno.append(vcf_data.snp_genotypes[current_snp].genotypes)
             current_snp_set.append(current_snp)
 
-        if self.logger.isEnabledFor(logging.INFO):
+        if log_start and self.logger.isEnabledFor(logging.INFO):
             self.logger.info(
                 f"After 1st step {len(current_snp_set)} primary SNP selected"
             )
         return current_snp_set
 
     def deterministic_eliminate(
-        self, snp_set: List[str], vcf_data: VCFDataType, min_distance: int
+        self,
+        snp_set: List[str],
+        vcf_data: VCFDataType,
+        min_distance: int,
+        log_start: bool = True,
     ) -> List[str]:
         """Greedy backward elimination preserving minimal distance constraint.
 
@@ -123,7 +132,7 @@ class SNPSelector:
         contributions to pairwise distances across the upper triangle and updating
         totals incrementally when SNPs are removed.
         """
-        if self.logger.isEnabledFor(logging.INFO):
+        if log_start and self.logger.isEnabledFor(logging.INFO):
             self.logger.info("Backward one-by-one elimination...")
 
         # Monitor memory before creating large matrices
@@ -197,7 +206,11 @@ class SNPSelector:
         # Base minimal set
         try:
             base_primary = self.build_primary_set(
-                vcf_data, min_distance, excluded=set()
+                vcf_data,
+                min_distance,
+                excluded=set(),
+                log_start=True,
+                log_distances=True,
             )
         except BuildError:
             sys.exit("Not enough polymorphic SNP to discriminate samples. Exit.")
@@ -241,12 +254,16 @@ class SNPSelector:
         for excl in combinations(sorted(base_minimal), exclude_size):
             try:
                 alt_primary = self.build_primary_set(
-                    vcf_data, min_distance, excluded=set(excl)
+                    vcf_data,
+                    min_distance,
+                    excluded=set(excl),
+                    log_start=False,
+                    log_distances=False,
                 )
             except BuildError:
                 continue
             alt_minimal = self.deterministic_eliminate(
-                alt_primary, vcf_data, min_distance
+                alt_primary, vcf_data, min_distance, log_start=False
             )
             overlap = len(set(alt_minimal).intersection(base_minimal))
             if len(alt_minimal) == len(base_minimal) and (overlap <= allowed_max):
@@ -259,7 +276,11 @@ class SNPSelector:
             for sid in sorted(base_minimal):
                 try:
                     alt_primary = self.build_primary_set(
-                        vcf_data, min_distance, excluded={sid}
+                        vcf_data,
+                        min_distance,
+                        excluded={sid},
+                        log_start=False,
+                        log_distances=False,
                     )
                 except BuildError:
                     continue
@@ -272,12 +293,14 @@ class SNPSelector:
                 if len(unique_sets) >= n_sets:
                     break
 
+        # Compute final selection limited to n_sets and log accurate count
+        selected_sets = unique_sets[:n_sets]
         if self.logger.isEnabledFor(logging.INFO):
-            self.logger.info(f"{len(unique_sets)} discriminating SNP sets selected.")
+            self.logger.info(f"{len(selected_sets)} discriminating SNP sets selected.")
 
         # Optionally expand by PIC to reach max_snps
         best_snp_sets_final = []
-        for si, s in enumerate(unique_sets[:n_sets], start=1):
+        for si, s in enumerate(selected_sets, start=1):
             orig_snp_number = len(s)
             if max_snps > len(s):
                 snp_maf = {

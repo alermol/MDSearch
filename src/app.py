@@ -9,6 +9,7 @@ from .core import VCFParser, DistanceCalculator, SNPSelector, LazyVCFData, VCFDa
 from .core.snp_selector import OverlapConstraints
 from .io import VCFWriter, WriteConfig, SummaryWriter
 from .utils import MemoryMonitor, setup_logger
+from .utils.indexing import ensure_variant_index
 
 __all__ = ["MDSearchConfig", "MDSearchApp"]
 
@@ -31,6 +32,8 @@ class MDSearchConfig:
     summary_tsv: Optional[Path] = None
     lazy_loading: bool = True  # Enable lazy loading by default for better memory usage
     cache_size: int = 1000  # Number of SNPs to keep in memory cache
+    input_format: str = "auto"  # one of: auto|v|z|u|b (bcftools letters)
+    output_format: str = "v"  # one of: v|z|u|b (bcftools letters)
 
 
 class MDSearchApp:
@@ -57,7 +60,17 @@ class MDSearchApp:
 
     def run(self) -> None:
         """Execute the complete MDSearch pipeline."""
-        # 1. Parse and validate VCF (with optional lazy loading)
+        # 1. Ensure index exists for compressed inputs (VCF.gz/BCF)
+        try:
+            ensure_variant_index(
+                self.config.input_vcf, self.config.input_format, self.logger
+            )
+        except Exception as e:
+            if self.logger.isEnabledFor(logging.ERROR):
+                self.logger.error(f"Failed to ensure variant index: {e}")
+            raise
+
+        # 2. Parse and validate VCF (with optional lazy loading)
         vcf_data: VCFDataType
         if self.config.lazy_loading:
             vcf_data = self.vcf_parser.parse_and_validate_lazy(
@@ -71,7 +84,7 @@ class MDSearchApp:
                 self.config.input_vcf, self.config.ploidy, self.config.convert_het
             )
 
-        # 2. Search for optimal SNP sets
+        # 3. Search for optimal SNP sets
         snp_sets = self.snp_selector.search_optimal_sets(
             vcf_data,
             self.config.min_distance,
@@ -80,11 +93,11 @@ class MDSearchApp:
             self.config.overlap_constraints,
         )
 
-        # 3. Log selected SNP details when not using TSV summary
+        # 4. Log selected SNP details when not using TSV summary
         if not self.config.summary_tsv:
             for si, s in enumerate(snp_sets, start=1):
                 min_d = self.distance_calc.calc_distance_for_snp_ids(
-                    s, vcf_data.snp_genotypes
+                    s, vcf_data.snp_genotypes, log=False
                 )
                 snp_ids_str = ",".join(sorted(s))
                 self.logger.info(
@@ -92,12 +105,14 @@ class MDSearchApp:
                     f"SNP_IDs=[{snp_ids_str}]"
                 )
 
-        # 4. Write output files
+        # 5. Write output files
         if self.logger.isEnabledFor(logging.INFO):
             self.logger.info("Writing selected SNPs in VCF...")
 
         write_config = WriteConfig(
-            ploidy=self.config.ploidy, convert_het=self.config.convert_het
+            ploidy=self.config.ploidy,
+            convert_het=self.config.convert_het,
+            output_format=self.config.output_format,
         )
         self.vcf_writer.write_snp_sets(
             self.config.input_vcf, self.config.output_prefix, snp_sets, write_config
@@ -106,7 +121,7 @@ class MDSearchApp:
         if self.logger.isEnabledFor(logging.INFO):
             self.logger.info("Done")
 
-        # 5. Write summary if requested
+        # 6. Write summary if requested
         if self.config.summary_tsv:
             self.summary_writer.write_summary(
                 snp_sets, self.config.output_prefix, self.config.summary_tsv, vcf_data

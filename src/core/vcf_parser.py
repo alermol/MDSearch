@@ -9,6 +9,7 @@ from collections import OrderedDict
 
 from ..utils.memory_monitor import MemoryMonitor
 from .genotype_utils import extract_gt, gt_to_value, calculate_maf
+import pysam
 
 __all__ = [
     "VCFHeaders",
@@ -48,13 +49,20 @@ class VCFData:
 
 @dataclass
 class SNPMetadata:
-    """Lightweight SNP metadata without genotype data for lazy loading."""
+    """Lightweight SNP metadata without genotype data for lazy loading.
+
+    For plain-text uncompressed VCFs, we store byte offsets for fast seeking.
+    For compressed VCFs/BCFs, random access requires an index; we store
+    chrom/pos to fetch on demand via pysam.
+    """
 
     snp_id: str
     maf: float
-    file_position: int  # Byte position where this SNP line starts
-    line_length: int  # Length of the line for seeking
+    file_position: int  # Byte position where this SNP line starts (-1 if unknown)
+    line_length: int  # Length of the line for seeking (0 if unknown)
     line_number: int  # Line number in file for error reporting
+    chrom: Optional[str] = None
+    pos: Optional[int] = None
 
 
 class LRUCache:
@@ -135,30 +143,70 @@ class LazyVCFData:
     def _load_snp_from_file(self, metadata: SNPMetadata) -> SNPData:
         """Load a specific SNP from file using its metadata."""
         try:
-            with open(self._file_path, "r") as vcf_file:
-                # Seek to the SNP's position
-                vcf_file.seek(metadata.file_position)
-                line = vcf_file.read(metadata.line_length).strip()
+            # If we have a valid byte offset, use fast text seek
+            if metadata.file_position >= 0 and metadata.line_length > 0:
+                with open(self._file_path, "r") as vcf_file:
+                    vcf_file.seek(metadata.file_position)
+                    line = vcf_file.read(metadata.line_length).strip()
 
-                # Parse the line
-                parts = line.split("\t")
-                if len(parts) < 9:
-                    raise ValueError(
-                        f"Invalid VCF line format at position {metadata.file_position}"
+                    parts = line.split("\t")
+                    if len(parts) < 9:
+                        raise ValueError(
+                            f"Invalid VCF line format at position {metadata.file_position}"
+                        )
+
+                    format_field = parts[8]
+                    sample_fields = parts[9:]
+
+                    geno: List[float] = []
+                    for sample_field in sample_fields:
+                        gt = extract_gt(format_field, sample_field)
+                        geno.append(gt_to_value(gt, self._ploidy, self._convert_het))
+
+                    return SNPData(
+                        genotypes=geno, sample_fields=sample_fields, maf=metadata.maf
                     )
 
-                # Extract sample data
-                format_field = parts[8]
-                sample_fields = parts[9:]
+            # Otherwise, try to fetch via pysam using chrom/pos (requires index)
+            if metadata.chrom is None or metadata.pos is None:
+                raise RuntimeError(
+                    "Missing chrom/pos for random access in compressed input"
+                )
 
-                # Convert genotypes
-                geno: List[float] = []
-                for sample_field in sample_fields:
-                    gt = extract_gt(format_field, sample_field)
-                    geno.append(gt_to_value(gt, self._ploidy, self._convert_het))
+            with pysam.VariantFile(str(self._file_path)) as ivcf:
+                found = None
+                for rec in ivcf.fetch(metadata.chrom, metadata.pos - 1, metadata.pos):
+                    if rec.id == metadata.snp_id:
+                        found = rec
+                        break
+                if found is None:
+                    raise RuntimeError(
+                        f"Record {metadata.snp_id} not found at {metadata.chrom}:{metadata.pos}"
+                    )
+
+                # Build genotype values from GT tuples
+                sample_fields_list: List[str] = []
+                geno_values: List[float] = []
+                for sample in ivcf.header.samples:
+                    data = found.samples[sample]
+                    gt_tuple = data.get("GT")
+                    if gt_tuple is None or all(g is None for g in gt_tuple):
+                        gt_str = "."
+                    else:
+                        # Assume unphased for conversion
+                        gt_parts = ["." if g is None else str(g) for g in gt_tuple]
+                        sep = "/" if len(gt_parts) != 1 else "/"
+                        gt_str = sep.join(gt_parts)
+                    # Reconstruct sample field with GT-only
+                    sample_fields_list.append(gt_str)
+                    geno_values.append(
+                        gt_to_value(gt_str, self._ploidy, self._convert_het)
+                    )
 
                 return SNPData(
-                    genotypes=geno, sample_fields=sample_fields, maf=metadata.maf
+                    genotypes=geno_values,
+                    sample_fields=sample_fields_list,
+                    maf=metadata.maf,
                 )
 
         except Exception as e:
@@ -287,60 +335,21 @@ class VCFParser:
 
     def _validate_headers(self, vcf_path: Path) -> VCFHeaders:
         """Validate VCF headers and extract sample information."""
-        header_line = None
-        samples = []
-        fileformat_found = False
-        line_number = 0
+        try:
+            with pysam.VariantFile(str(vcf_path)) as vf:
+                samples = list(vf.header.samples)
+                # pysam provides header version via .header.version in newer releases
+                fileformat_found = True if getattr(vf.header, "version", None) else True
 
-        with open(vcf_path) as vcf:
-            for line in vcf:
-                line_number += 1
-                line = line.strip()
-
-                if not line:
-                    continue
-
-                if line.startswith("##fileformat=VCF"):
-                    fileformat_found = True
-                elif line.startswith("#CHROM"):
-                    header_line = line
-                    parts = line.split("\t")
-                    if len(parts) < 9:
-                        sys.exit(
-                            f"ERROR: Line {line_number}: Invalid header format. "
-                            f"Expected at least 9 columns, found {len(parts)}."
-                        )
-                    samples = parts[9:]
-                    break
-                elif line.startswith("#"):
-                    continue  # Skip other header lines
-                else:
+                if len(samples) < 2:
                     sys.exit(
-                        f"ERROR: Line {line_number}: Found data line before required #CHROM header. "
-                        "VCF must have proper header structure."
+                        f"ERROR: Insufficient samples for distance calculation. "
+                        f"Found {len(samples)} samples, need at least 2."
                     )
 
-        # Validate headers
-        if not fileformat_found:
-            sys.exit(
-                "ERROR: Missing required VCF header '##fileformat=VCFv4.x'. "
-                "Ensure input is a valid VCF file."
-            )
-
-        if header_line is None:
-            sys.exit(
-                "ERROR: Missing required #CHROM header line. "
-                "VCF must have column headers."
-            )
-
-        # Validate minimum sample count
-        if len(samples) < 2:
-            sys.exit(
-                f"ERROR: Insufficient samples for distance calculation. "
-                f"Found {len(samples)} samples, need at least 2."
-            )
-
-        return VCFHeaders(samples=samples, fileformat_found=fileformat_found)
+                return VCFHeaders(samples=samples, fileformat_found=fileformat_found)
+        except Exception as e:
+            sys.exit(f"ERROR: Failed to read VCF/BCF headers via pysam: {e}")
 
     def _validate_variants(
         self, vcf_path: Path, headers: VCFHeaders, ploidy: int, convert_het: bool
@@ -351,35 +360,14 @@ class VCFParser:
         snp_genotypes: Dict[str, SNPData] = {}
         snp_maf_cache: Dict[str, float] = {}
 
-        with open(vcf_path) as vcf:
+        with pysam.VariantFile(str(vcf_path)) as vf:
             line_number = 0
-            for line in vcf:
+            for rec in vf:
                 line_number += 1
-                line = line.strip()
-
-                if line.startswith("#") or not line:
-                    continue
-
+                # Skip header pseudo-lines; pysam yields only records
                 data_line_count += 1
-                parts = line.split("\t")
 
-                # Validate line format
-                expected_columns = 9 + len(headers.samples)
-                if len(parts) != expected_columns:
-                    sys.exit(
-                        f"ERROR: Line {line_number}: Invalid number of columns. "
-                        f"Expected {expected_columns}, found {len(parts)}."
-                    )
-
-                # Validate required columns exist
-                if len(parts) < 5:
-                    sys.exit(
-                        f"ERROR: Line {line_number}: Missing required VCF columns "
-                        "(CHROM, POS, ID, REF, ALT)."
-                    )
-
-                # Validate SNP ID
-                snp_id = parts[2]
+                snp_id = rec.id or ""
                 if (not snp_id) or (snp_id == "."):
                     sys.exit(
                         f"ERROR: Line {line_number}: Missing or placeholder SNP ID. "
@@ -394,22 +382,32 @@ class VCFParser:
                 seen_ids.add(snp_id)
 
                 # ALT-based multiallelic detection
-                alt_field = parts[4]
-                if "," in alt_field:
+                if rec.alts and len(rec.alts) > 1:
                     sys.exit(
-                        f"ERROR: Line {line_number}: Multiallelic site detected (ALT='{alt_field}'). "
+                        f"ERROR: Line {line_number}: Multiallelic site detected (ALT='{','.join(rec.alts)}'). "
                         "Filter or split multiallelic sites before processing."
                     )
 
-                # Validate FORMAT and sample fields
-                format_field = parts[8] if len(parts) > 8 else "GT"
-                sample_fields = parts[9:]
+                # Validate sample count
+                if len(rec.samples) != len(headers.samples):
+                    sys.exit(
+                        f"ERROR: Line {line_number}: Invalid number of samples. "
+                        f"Expected {len(headers.samples)}, found {len(rec.samples)}."
+                    )
 
                 geno: List[float] = []
-                for sample_idx, sample_field in enumerate(sample_fields):
-                    gt = extract_gt(format_field, sample_field)
+                sample_fields_list: List[str] = []
+                for sample_idx, sample in enumerate(headers.samples):
+                    data = rec.samples[sample]
+                    gt_tuple = data.get("GT")
+                    if gt_tuple is None or all(g is None for g in gt_tuple):
+                        gt = "."
+                    else:
+                        gt_parts = ["." if g is None else str(g) for g in gt_tuple]
+                        # Assume unphased representation for numeric conversion
+                        gt = "/".join(gt_parts)
 
-                    # Detect multiallelic allele indices in GT
+                    # Detect multiallelic indices in GT
                     try:
                         alleles = [
                             int(x)
@@ -418,7 +416,6 @@ class VCFParser:
                         ]
                     except ValueError:
                         alleles = []
-
                     if any(a > 1 for a in alleles):
                         sys.exit(
                             f"ERROR: Line {line_number}, Sample {sample_idx + 1}: "
@@ -426,11 +423,13 @@ class VCFParser:
                             "Filter or split multiallelic sites before processing."
                         )
 
+                    sample_fields_list.append(gt)
                     geno.append(gt_to_value(gt, ploidy, convert_het))
 
-                # Store validated data
                 maf = calculate_maf(geno, ploidy)
-                snp_data = SNPData(genotypes=geno, sample_fields=sample_fields, maf=maf)
+                snp_data = SNPData(
+                    genotypes=geno, sample_fields=sample_fields_list, maf=maf
+                )
                 snp_genotypes[snp_id] = snp_data
                 snp_maf_cache[snp_id] = maf
 
@@ -458,101 +457,166 @@ class VCFParser:
         snp_metadata: Dict[str, SNPMetadata] = {}
         snp_maf_cache: Dict[str, float] = {}
 
-        with open(
-            vcf_path, "rb"
-        ) as vcf_file:  # Binary mode for accurate byte positions
-            line_number = 0
+        # Decide strategy based on file extension: uncompressed .vcf supports byte offsets
+        is_plain_vcf = str(vcf_path).endswith(".vcf")
 
-            for line_bytes in vcf_file:
-                line_start_pos = vcf_file.tell() - len(line_bytes)
-                line = line_bytes.decode("utf-8").strip()
-                line_number += 1
+        if is_plain_vcf:
+            with open(
+                vcf_path, "rb"
+            ) as vcf_file:  # Binary mode for accurate byte positions
+                line_number = 0
 
-                if line.startswith("#") or not line:
-                    continue
+                for line_bytes in vcf_file:
+                    line_start_pos = vcf_file.tell() - len(line_bytes)
+                    line = line_bytes.decode("utf-8").strip()
+                    line_number += 1
 
-                data_line_count += 1
-                parts = line.split("\t")
+                    if line.startswith("#") or not line:
+                        continue
 
-                # Validate line format (same validation as _validate_variants)
-                expected_columns = 9 + len(headers.samples)
-                if len(parts) != expected_columns:
-                    sys.exit(
-                        f"ERROR: Line {line_number}: Invalid number of columns. "
-                        f"Expected {expected_columns}, found {len(parts)}."
-                    )
+                    data_line_count += 1
+                    parts = line.split("\t")
 
-                # Validate required columns exist
-                if len(parts) < 5:
-                    sys.exit(
-                        f"ERROR: Line {line_number}: Missing required VCF columns "
-                        "(CHROM, POS, ID, REF, ALT)."
-                    )
-
-                # Validate SNP ID
-                snp_id = parts[2]
-                if (not snp_id) or (snp_id == "."):
-                    sys.exit(
-                        f"ERROR: Line {line_number}: Missing or placeholder SNP ID. "
-                        "Ensure IDs are present and non-'.'."
-                    )
-
-                if snp_id in seen_ids:
-                    sys.exit(
-                        f"ERROR: Line {line_number}: Duplicate SNP ID '{snp_id}'. "
-                        "Ensure SNP IDs are unique."
-                    )
-                seen_ids.add(snp_id)
-
-                # ALT-based multiallelic detection
-                alt_field = parts[4]
-                if "," in alt_field:
-                    sys.exit(
-                        f"ERROR: Line {line_number}: Multiallelic site detected (ALT='{alt_field}'). "
-                        "Filter or split multiallelic sites before processing."
-                    )
-
-                # Validate FORMAT and sample fields
-                format_field = parts[8] if len(parts) > 8 else "GT"
-                sample_fields = parts[9:]
-
-                # Quick MAF calculation without storing all genotypes
-                geno: List[float] = []
-                for sample_idx, sample_field in enumerate(sample_fields):
-                    gt = extract_gt(format_field, sample_field)
-
-                    # Detect multiallelic allele indices in GT
-                    try:
-                        alleles = [
-                            int(x)
-                            for x in gt.replace("|", "/").split("/")
-                            if x not in ("", ".")
-                        ]
-                    except ValueError:
-                        alleles = []
-
-                    if any(a > 1 for a in alleles):
+                    # Validate line format (same validation as _validate_variants)
+                    expected_columns = 9 + len(headers.samples)
+                    if len(parts) != expected_columns:
                         sys.exit(
-                            f"ERROR: Line {line_number}, Sample {sample_idx + 1}: "
-                            f"Multiallelic genotype detected (GT='{gt}'). "
+                            f"ERROR: Line {line_number}: Invalid number of columns. "
+                            f"Expected {expected_columns}, found {len(parts)}."
+                        )
+
+                    # Validate required columns exist
+                    if len(parts) < 5:
+                        sys.exit(
+                            f"ERROR: Line {line_number}: Missing required VCF columns "
+                            "(CHROM, POS, ID, REF, ALT)."
+                        )
+
+                    snp_id = parts[2]
+                    if (not snp_id) or (snp_id == "."):
+                        sys.exit(
+                            f"ERROR: Line {line_number}: Missing or placeholder SNP ID. "
+                            "Ensure IDs are present and non-'.'."
+                        )
+
+                    if snp_id in seen_ids:
+                        sys.exit(
+                            f"ERROR: Line {line_number}: Duplicate SNP ID '{snp_id}'. "
+                            "Ensure SNP IDs are unique."
+                        )
+                    seen_ids.add(snp_id)
+
+                    alt_field = parts[4]
+                    if "," in alt_field:
+                        sys.exit(
+                            f"ERROR: Line {line_number}: Multiallelic site detected (ALT='{alt_field}'). "
                             "Filter or split multiallelic sites before processing."
                         )
 
-                    geno.append(gt_to_value(gt, ploidy, convert_het))
+                    format_field = parts[8] if len(parts) > 8 else "GT"
+                    sample_fields = parts[9:]
 
-                # Calculate MAF for metadata
-                maf = calculate_maf(geno, ploidy)
+                    geno: List[float] = []
+                    for sample_idx, sample_field in enumerate(sample_fields):
+                        gt = extract_gt(format_field, sample_field)
+                        try:
+                            alleles = [
+                                int(x)
+                                for x in gt.replace("|", "/").split("/")
+                                if x not in ("", ".")
+                            ]
+                        except ValueError:
+                            alleles = []
+                        if any(a > 1 for a in alleles):
+                            sys.exit(
+                                f"ERROR: Line {line_number}, Sample {sample_idx + 1}: "
+                                f"Multiallelic genotype detected (GT='{gt}'). "
+                                "Filter or split multiallelic sites before processing."
+                            )
+                        geno.append(gt_to_value(gt, ploidy, convert_het))
 
-                # Store metadata (not full genotype data)
-                metadata = SNPMetadata(
-                    snp_id=snp_id,
-                    maf=maf,
-                    file_position=line_start_pos,
-                    line_length=len(line_bytes),
-                    line_number=line_number,
-                )
-                snp_metadata[snp_id] = metadata
-                snp_maf_cache[snp_id] = maf
+                    maf = calculate_maf(geno, ploidy)
+                    metadata = SNPMetadata(
+                        snp_id=snp_id,
+                        maf=maf,
+                        file_position=line_start_pos,
+                        line_length=len(line_bytes),
+                        line_number=line_number,
+                        chrom=parts[0],
+                        pos=int(parts[1]) if parts[1].isdigit() else None,
+                    )
+                    snp_metadata[snp_id] = metadata
+                    snp_maf_cache[snp_id] = maf
+        else:
+            # Compressed VCF/BCF: iterate with pysam and store chrom/pos for fetch
+            try:
+                with pysam.VariantFile(str(vcf_path)) as vf:
+                    line_number = 0
+                    for rec in vf:
+                        line_number += 1
+                        data_line_count += 1
+
+                        snp_id = rec.id or ""
+                        if (not snp_id) or (snp_id == "."):
+                            sys.exit(
+                                f"ERROR: Line {line_number}: Missing or placeholder SNP ID. "
+                                "Ensure IDs are present and non-'.'."
+                            )
+                        if snp_id in seen_ids:
+                            sys.exit(
+                                f"ERROR: Line {line_number}: Duplicate SNP ID '{snp_id}'. "
+                                "Ensure SNP IDs are unique."
+                            )
+                        seen_ids.add(snp_id)
+
+                        if rec.alts and len(rec.alts) > 1:
+                            sys.exit(
+                                f"ERROR: Line {line_number}: Multiallelic site detected (ALT='{','.join(rec.alts)}'). "
+                                "Filter or split multiallelic sites before processing."
+                            )
+
+                        geno_values: List[float] = []
+                        for sample_idx, sample in enumerate(headers.samples):
+                            data = rec.samples[sample]
+                            gt_tuple = data.get("GT")
+                            if gt_tuple is None or all(g is None for g in gt_tuple):
+                                gt = "."
+                            else:
+                                gt_parts = [
+                                    "." if g is None else str(g) for g in gt_tuple
+                                ]
+                                gt = "/".join(gt_parts)
+
+                            try:
+                                alleles = [
+                                    int(x)
+                                    for x in gt.replace("|", "/").split("/")
+                                    if x not in ("", ".")
+                                ]
+                            except ValueError:
+                                alleles = []
+                            if any(a > 1 for a in alleles):
+                                sys.exit(
+                                    f"ERROR: Line {line_number}, Sample {sample_idx + 1}: "
+                                    f"Multiallelic genotype detected (GT='{gt}'). "
+                                    "Filter or split multiallelic sites before processing."
+                                )
+                            geno_values.append(gt_to_value(gt, ploidy, convert_het))
+
+                        maf = calculate_maf(geno_values, ploidy)
+                        metadata = SNPMetadata(
+                            snp_id=snp_id,
+                            maf=maf,
+                            file_position=-1,
+                            line_length=0,
+                            line_number=line_number,
+                            chrom=rec.chrom,
+                            pos=int(rec.pos),
+                        )
+                        snp_metadata[snp_id] = metadata
+                        snp_maf_cache[snp_id] = maf
+            except Exception as e:
+                sys.exit(f"ERROR: Failed to read compressed VCF/BCF via pysam: {e}")
 
         # Final validation
         if data_line_count == 0:

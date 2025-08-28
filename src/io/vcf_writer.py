@@ -1,10 +1,11 @@
 """VCF file output operations."""
 
 from pathlib import Path
-from typing import List, TextIO
+from typing import List, Any
 from dataclasses import dataclass
 
 from ..core.genotype_utils import is_het
+import pysam
 
 __all__ = ["WriteConfig", "VCFWriter"]
 
@@ -15,6 +16,7 @@ class WriteConfig:
 
     ploidy: int
     convert_het: bool
+    output_format: str = "v"  # one of: v|z|u|b (bcftools letters)
 
 
 class VCFWriter:
@@ -27,36 +29,149 @@ class VCFWriter:
         snp_sets: List[List[str]],
         config: WriteConfig,
     ) -> None:
-        """Write each SNP set to separate VCF files."""
-        for si, s in enumerate(snp_sets, start=1):
-            output_file = f"{output_prefix}_{si}.vcf"
+        """Write each SNP set to output files.
 
-            with open(input_vcf) as invcf, open(output_file, "w") as outvcf:
-                for vcf_line in invcf:
-                    if vcf_line.startswith("#"):
-                        outvcf.write(vcf_line)
+        - Uses pysam VariantFile for all formats (vcf, vcf.gz, bcf).
+        """
+
+        # Map bcftools letters to pysam modes
+        mode_map = {"v": "w", "z": "wz", "u": "wb0", "b": "wb"}
+        if config.output_format not in mode_map:
+            raise ValueError(f"Unsupported output_format: {config.output_format}")
+        out_mode: Any = mode_map[config.output_format]
+
+        with pysam.VariantFile(str(input_vcf)) as invcf:
+            for si, s in enumerate(snp_sets, start=1):
+                # Gather contigs used by this set
+                contigs_needed = set()
+                for rec in invcf.fetch():
+                    if rec.id and rec.id in s:
+                        contigs_needed.add(rec.chrom)
+
+                # Prepare header: copy and add missing contigs and GT format
+                header = invcf.header.copy()
+                for chrom in sorted(contigs_needed):
+                    if chrom not in header.contigs:
+                        header.contigs.add(chrom)
+                if "GT" not in header.formats:
+                    header.formats.add("GT", 1, "String", "Genotype")
+
+                # Output file name based on format
+                if config.output_format == "v":
+                    output_file = f"{output_prefix}_{si}.vcf"
+                    # Text VCF path: preserve original FORMAT and sample subfields when input is text.
+                    if str(input_vcf).endswith(".vcf"):
+                        with open(input_vcf) as infh, open(output_file, "w") as outfh:
+                            for vcf_line in infh:
+                                if vcf_line.startswith("#"):
+                                    outfh.write(vcf_line)
+                                else:
+                                    parts = vcf_line.rstrip("\n").split("\t")
+                                    if len(parts) < 3:
+                                        continue
+                                    vid = parts[2]
+                                    if not vid or vid not in s:
+                                        continue
+                                    if config.convert_het and len(parts) >= 9:
+                                        self._write_line_with_het_conversion(
+                                            parts, outfh, config
+                                        )
+                                    else:
+                                        outfh.write(vcf_line)
                     else:
-                        parts = vcf_line.rstrip("\n").split("\t")
-                        # Robust guards for malformed/blank lines
-                        if len(parts) < 3:
-                            continue
-                        snp_id = parts[2]
-                        if snp_id not in s:
-                            continue
+                        # Compressed inputs: synthesize simple GT-only lines using pysam header
+                        with open(output_file, "w") as outfh:
+                            outfh.write(str(header))
+                            for rec in invcf.fetch():
+                                if not rec.id or rec.id not in s:
+                                    continue
+                                chrom = rec.chrom
+                                pos = rec.pos
+                                vid = rec.id
+                                ref = rec.ref
+                                alt = rec.alts[0] if rec.alts else "."
+                                qual = "."
+                                flt = "PASS"
+                                info = "."
+                                fmt = "GT"
+                                sample_strs: List[str] = []
+                                for sample in invcf.header.samples:
+                                    data = rec.samples[sample]
+                                    gt_tuple = data.get("GT")
+                                    phased = getattr(data, "phased", False)
+                                    sep = "|" if phased else "/"
+                                    if gt_tuple is None or all(g is None for g in gt_tuple):
+                                        gt_s = sep.join(["."] * max(1, config.ploidy))
+                                    else:
+                                        parts = ["." if g is None else str(g) for g in gt_tuple]
+                                        gt_s = sep.join(parts)
+                                    if config.convert_het and is_het(gt_s):
+                                        gt_s = sep.join(["."] * max(1, config.ploidy))
+                                    sample_strs.append(gt_s)
+                                line = "\t".join(
+                                    [
+                                        str(chrom),
+                                        str(pos),
+                                        str(vid),
+                                        str(ref),
+                                        str(alt),
+                                        qual,
+                                        flt,
+                                        info,
+                                        fmt,
+                                    ]
+                                    + sample_strs
+                                )
+                                outfh.write(line + "\n")
+                else:
+                    if config.output_format == "z":
+                        output_file = f"{output_prefix}_{si}.vcf.gz"
+                    elif config.output_format == "u":
+                        output_file = f"{output_prefix}_{si}.bcf"
+                    else:
+                        output_file = f"{output_prefix}_{si}.bcf"
+                    with pysam.VariantFile(
+                        output_file, out_mode, header=header
+                    ) as outvcf:
+                        for rec in invcf.fetch():
+                            if not rec.id or rec.id not in s:
+                                continue
+                            if config.convert_het:
+                                self._convert_het_in_record(rec, config)
+                            outvcf.write(rec)
 
-                        if config.convert_het:
-                            # If not enough columns for FORMAT/SAMPLES, write as-is
-                            if len(parts) < 9:
-                                outvcf.write(vcf_line)
-                            else:
-                                self._write_line_with_het_conversion(parts, outvcf, config)
-                        else:
-                            outvcf.write(vcf_line)
+    def _convert_het_in_record(
+        self, rec: pysam.VariantRecord, config: WriteConfig
+    ) -> None:
+        """Convert heterozygous GTs to missing for a record in-place."""
+        # Compose missing GT according to ploidy
+        if config.ploidy and config.ploidy > 1:
+            missing_tuple = tuple([None] * config.ploidy)
+        else:
+            missing_tuple = (None,)
+
+        for sample in rec.header.samples:
+            sdata = rec.samples[sample]
+            gt = sdata.get("GT")
+            if gt is None:
+                continue
+            # Determine heterozygosity by string form for reliability
+            sep_detect = "|" if any("|" in str(x) for x in (sdata.get("GT"),)) else "/"
+            gt_str = sep_detect.join(["." if g is None else str(g) for g in gt])
+            if is_het(gt_str):
+                sdata["GT"] = missing_tuple
+                # Preserve phasing for missing if original looked phased
+                is_phased = "|" in gt_str
+                if is_phased and len(missing_tuple) > 1:
+                    try:
+                        sdata.phased = True
+                    except Exception:
+                        pass
 
     def _write_line_with_het_conversion(
-        self, line: List[str], outvcf: TextIO, config: WriteConfig
+        self, line: List[str], outfh: Any, config: WriteConfig
     ) -> None:
-        """Write VCF line with heterozygous calls converted to missing."""
+        """Write VCF line with heterozygous calls converted to missing (text path)."""
         format_field = line[8] if len(line) > 8 else "GT"
         keys = format_field.split(":") if format_field else []
         gt_index = keys.index("GT") if "GT" in keys else -1
@@ -74,15 +189,13 @@ class VCFWriter:
             else "."
         )
 
-        new_samples = []
+        new_samples: List[str] = []
         for sample_field in line[9:]:
             if gt_index == -1:
                 new_samples.append(sample_field)
                 continue
-
             parts = sample_field.split(":")
             gt_val = parts[gt_index] if gt_index < len(parts) else "."
-
             if is_het(gt_val):
                 if gt_index < len(parts):
                     parts[gt_index] = missing_gt
@@ -93,4 +206,4 @@ class VCFWriter:
                 new_samples.append(sample_field)
 
         line = line[:9] + new_samples
-        outvcf.write("\t".join(line) + "\n")
+        outfh.write("\t".join(line) + "\n")

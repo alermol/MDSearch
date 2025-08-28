@@ -138,6 +138,26 @@ def create_parser() -> argparse.ArgumentParser:
         metavar="CACHE_SIZE",
     )
 
+    # IO formats (bcftools-style letters)
+    parser.add_argument(
+        "--input-format",
+        help=(
+            "Input format (bcftools-style): auto (default), v (VCF), z (VCF.gz), "
+            "u (uncompressed BCF), b (compressed BCF)"
+        ),
+        choices=["auto", "v", "z", "u", "b"],
+        default="auto",
+    )
+    parser.add_argument(
+        "--output-format",
+        help=(
+            "Output format (bcftools-style): v (VCF), z (VCF.gz), "
+            "u (uncompressed BCF), b (compressed BCF)"
+        ),
+        choices=["v", "z", "u", "b"],
+        default="v",
+    )
+
     return parser
 
 
@@ -167,6 +187,8 @@ def main() -> None:
         summary_tsv=args.summary_tsv,
         lazy_loading=args.lazy_loading,
         cache_size=args.cache_size,
+        input_format=args.input_format,
+        output_format=args.output_format,
     )
 
     # Run application

@@ -176,7 +176,7 @@ def test_json_logging_emits_structured_lines(tmp_path: Path):
     )
     stderr = proc.stderr.strip().splitlines()
     # Find at least one JSON object line
-    json_like = [l for l in stderr if l.startswith("{") and l.endswith("}")]
+    json_like = [line for line in stderr if line.startswith("{") and line.endswith("}")]
     assert json_like, f"expected JSON log lines, got: {stderr[:5]}"
     # Basic keys presence check
 
@@ -203,3 +203,49 @@ def test_text_logging_emits_bracketed_levels(tmp_path: Path):
     )
     stderr = proc.stderr
     assert "[INFO]" in stderr
+
+
+# New tests for format letters and fixtures
+def _run_cli(ivcf: Path, out_prefix: Path, extra: list[str] | None = None) -> None:
+    args = [
+        sys.executable,
+        str(Path(__file__).resolve().parents[1] / "mdsearch.py"),
+        str(ivcf),
+        str(out_prefix),
+        "-pl",
+        "2",
+        "-ts",
+        "0",
+        "-md",
+        "1",
+        "-ns",
+        "1",
+    ]
+    if extra:
+        args.extend(extra)
+    subprocess.run(args, check=True)
+
+
+def test_cli_output_format_letters(tmp_path: Path):
+    ivcf = _make_minimal_vcf(tmp_path)
+
+    for letter, ext in [("v", ".vcf"), ("z", ".vcf.gz"), ("u", ".bcf"), ("b", ".bcf")]:
+        out_prefix = tmp_path / f"out_{letter}"
+        _run_cli(ivcf, out_prefix, ["--output-format", letter])
+        produced = Path(f"{out_prefix}_1{ext}")
+        assert produced.exists(), f"expected output with extension {ext} for letter {letter}"
+
+
+def test_cli_input_format_letters_with_fixtures(tmp_path: Path):
+    fixtures = Path(__file__).resolve().parent / "fixtures"
+    cases = [
+        (fixtures / "test1_vcf_uc.vcf", "v"),
+        (fixtures / "test1_vcf_c.vcf.gz", "z"),
+        (fixtures / "test1_vcf_uc.bcf", "u"),
+        (fixtures / "test1_vcf_c.bcf", "b"),
+    ]
+    for ivcf, letter in cases:
+        out_prefix = tmp_path / f"fmt_{letter}"
+        _run_cli(ivcf, out_prefix, ["--input-format", letter, "--output-format", "v"])
+        produced = Path(f"{out_prefix}_1.vcf")
+        assert produced.exists(), f"expected text VCF output for input format {letter}"

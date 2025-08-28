@@ -32,13 +32,13 @@ class DistanceCalculator:
         self.logger = logger
         self.show_progress = show_progress
 
-    def calc_min_distance(self, snps: List[List[float]]) -> float:
+    def calc_min_distance(self, snps: List[List[float]], *, log: bool = True) -> float:
         """Return minimal pairwise Hamming distance across samples for given SNPs.
 
         Optimized: compute only upper-triangle pairwise distances (j > i) and avoid
         self-pairs. Uses vectorized comparisons per anchor column.
         """
-        if self.logger.isEnabledFor(logging.INFO):
+        if log and self.logger.isEnabledFor(logging.INFO):
             self.logger.info(
                 f"Calculate pairwise distance based on {len(snps)} SNPs..."
             )
@@ -51,13 +51,13 @@ class DistanceCalculator:
         pairwise_distances: List[float] = []
 
         if num_samples <= 1:
-            if self.logger.isEnabledFor(logging.INFO):
+            if log and self.logger.isEnabledFor(logging.INFO):
                 self.logger.info("Distance between samples (min/med/avg/max): 0/0/0/0")
             return 0.0
 
         # Create progress bar for sample comparisons
         sample_range: Iterable[int] = range(num_samples - 1)
-        if self.show_progress and num_samples > 10:  # Only show for larger datasets
+        if self.show_progress and num_samples > 10 and log:  # Only show for larger datasets
             sample_range = tqdm(
                 sample_range,
                 desc="Computing pairwise distances",
@@ -77,7 +77,7 @@ class DistanceCalculator:
 
         res: NDArray[np.float64] = np.array(pairwise_distances, dtype=float)
 
-        if self.logger.isEnabledFor(logging.INFO):
+        if log and self.logger.isEnabledFor(logging.INFO):
             self.logger.info(
                 "Distance between samples (min/med/avg/max): "
                 f"{np.min(res)}/{np.median(res)}/{round(float(np.mean(res)), 1)}/{np.max(res)}"
@@ -89,10 +89,10 @@ class DistanceCalculator:
         return float(np.min(res))
 
     def calc_distance_for_snp_ids(
-        self, snp_ids: List[str], snp_data: SNPDataMapping
+        self, snp_ids: List[str], snp_data: SNPDataMapping, *, log: bool = True
     ) -> float:
         """Helper computing minimal distance for a list of SNP IDs."""
         if not snp_ids:
             return 0.0
         genos = [snp_data[sid].genotypes for sid in snp_ids]
-        return self.calc_min_distance(genos)
+        return self.calc_min_distance(genos, log=log)
