@@ -9,7 +9,6 @@ from math import floor
 
 import numpy as np
 from numpy.typing import NDArray
-from tqdm import tqdm
 
 from .distance_calculator import DistanceCalculator
 from .vcf_parser import VCFData, LazyVCFData
@@ -69,7 +68,10 @@ class SNPSelector:
         return candidates[0][0]
 
     def build_primary_set(
-        self, vcf_data: VCFDataType, min_distance: int, excluded: Optional[Set[str]] = None
+        self,
+        vcf_data: VCFDataType,
+        min_distance: int,
+        excluded: Optional[Set[str]] = None,
     ) -> List[str]:
         """Greedily build initial SNP set maximizing MAF under exclusions."""
         excluded = excluded or set()

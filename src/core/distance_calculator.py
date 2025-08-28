@@ -1,7 +1,7 @@
 """Hamming distance calculation optimized for large datasets."""
 
 import logging
-from typing import List, Protocol, Optional
+from typing import List, Protocol, Optional, Iterable
 
 import numpy as np
 from numpy.typing import NDArray
@@ -51,7 +51,7 @@ class DistanceCalculator:
             return 0.0
             
         # Create progress bar for sample comparisons
-        sample_range = range(num_samples - 1)
+        sample_range: Iterable[int] = range(num_samples - 1)
         if self.show_progress and num_samples > 10:  # Only show for larger datasets
             sample_range = tqdm(
                 sample_range,
