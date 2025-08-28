@@ -95,82 +95,195 @@ class MDSearch:
         if self.n_sets is None or self.n_sets < 1:
             sys.exit("-ns (number of sets) must be >= 1")
 
-        # Helpers to parse FORMAT and GT subfield
-        def _extract_gt(format_field: str, sample_field: str) -> str:
-            keys = format_field.split(":") if format_field else []
-            if "GT" not in keys:
-                return "."
-            gt_index = keys.index("GT")
-            parts = sample_field.split(":")
-            return parts[gt_index] if gt_index < len(parts) else "."
-
-        def _gt_to_value(gt: str, ploidy: int, convert_het: bool) -> float:
-            if "." in gt:
-                return np.nan
-            tokens = [t for t in gt.replace("|", "/").split("/") if t != ""]
-            try:
-                alleles = [int(x) for x in tokens]
-            except ValueError:
-                return np.nan
-            if len(alleles) == 1 and ploidy == 1:
-                return float(alleles[0])
-            count_alt = sum(1 for x in alleles if x == 1)
-            if count_alt == 0:
-                return 0.0
-            if count_alt == ploidy:
-                return 1.0
-            return np.nan if convert_het else count_alt / float(ploidy)
-
         # calculate target number of genotypes and create list containing genotype for each SNP
         self.snp_genotypes = {}
         self.snp_maf_cache: dict[str, float] = {}
-        seen_ids: set[str] = set()
-        with open(self.in_vcf) as vcf:
-            for vcf_line in vcf:
-                vcf_line = vcf_line.strip()
-                if vcf_line.startswith("#"):
-                    continue
-                else:
-                    parts = vcf_line.split("\t")
-                    snp_id = parts[2]
-                    if (not snp_id) or (snp_id == "."):
-                        sys.exit(
-                            "Missing or placeholder SNP ID detected. Ensure IDs are present and non-'.'."
-                        )
-                    if snp_id in seen_ids:
-                        sys.exit(
-                            f"Duplicate SNP ID detected: {snp_id}. Ensure SNP IDs are unique."
-                        )
-                    seen_ids.add(snp_id)
-                    # ALT-based multiallelic detection (comma indicates >1 ALT allele)
-                    alt_field = parts[4] if len(parts) > 4 else ""
-                    if "," in alt_field:
-                        sys.exit("Detected multiallelic sites. Filter or split them.")
-                    format_field = parts[8] if len(parts) > 8 else "GT"
-                    sample_fields = parts[9:]
-                    geno: list[float] = []
-                    for sample_field in sample_fields:
-                        gt = _extract_gt(format_field, sample_field)
-                        # Detect multiallelic allele indices in GT
-                        try:
-                            alleles = [
-                                int(x)
-                                for x in gt.replace("|", "/").split("/")
-                                if x not in ("", ".")
-                            ]
-                        except ValueError:
-                            alleles = []
-                        if any(a > 1 for a in alleles):
-                            sys.exit(
-                                "Detected multiallelic sites. Filter or split them."
-                            )
-                        geno.append(_gt_to_value(gt, self.ploidy, self.convert_het))
-                    self.snp_genotypes[snp_id] = [geno, sample_fields]
-                    # Cache MAF for this SNP
-                    self.snp_maf_cache[snp_id] = MDSearch._calculate_maf(
-                        self.snp_genotypes[snp_id][0], self.ploidy
-                    )
+        self._parse_and_validate_vcf()
         self.main()
+
+    def _parse_and_validate_vcf(self) -> None:
+        """Parse and validate VCF format with comprehensive error checking."""
+        # First pass: validate headers and count samples
+        header_line = None
+        samples = []
+        fileformat_found = False
+        line_number = 0
+
+        with open(self.in_vcf) as vcf:
+            for line in vcf:
+                line_number += 1
+                line = line.strip()
+
+                if not line:
+                    continue
+
+                if line.startswith("##fileformat=VCF"):
+                    fileformat_found = True
+                elif line.startswith("#CHROM"):
+                    header_line = line
+                    parts = line.split("\t")
+                    if len(parts) < 9:
+                        sys.exit(
+                            f"ERROR: Line {line_number}: Invalid header format. "
+                            f"Expected at least 9 columns, found {len(parts)}."
+                        )
+                    samples = parts[9:]
+                    break
+                elif line.startswith("#"):
+                    continue  # Skip other header lines
+                else:
+                    sys.exit(
+                        f"ERROR: Line {line_number}: Found data line before required #CHROM header. "
+                        "VCF must have proper header structure."
+                    )
+
+        # Validate headers
+        if not fileformat_found:
+            sys.exit(
+                "ERROR: Missing required VCF header '##fileformat=VCFv4.x'. "
+                "Ensure input is a valid VCF file."
+            )
+
+        if header_line is None:
+            sys.exit(
+                "ERROR: Missing required #CHROM header line. "
+                "VCF must have column headers."
+            )
+
+        # Validate minimum sample count
+        if len(samples) < 2:
+            sys.exit(
+                f"ERROR: Insufficient samples for distance calculation. "
+                f"Found {len(samples)} samples, need at least 2."
+            )
+
+        # Second pass: parse and validate data lines
+        seen_ids: set[str] = set()
+        data_line_count = 0
+
+        with open(self.in_vcf) as vcf:
+            line_number = 0
+            for line in vcf:
+                line_number += 1
+                line = line.strip()
+
+                if line.startswith("#") or not line:
+                    continue
+
+                data_line_count += 1
+                parts = line.split("\t")
+
+                # Validate line format
+                expected_columns = 9 + len(samples)
+                if len(parts) != expected_columns:
+                    sys.exit(
+                        f"ERROR: Line {line_number}: Invalid number of columns. "
+                        f"Expected {expected_columns}, found {len(parts)}."
+                    )
+
+                # Validate required columns exist
+                if len(parts) < 5:
+                    sys.exit(
+                        f"ERROR: Line {line_number}: Missing required VCF columns "
+                        "(CHROM, POS, ID, REF, ALT)."
+                    )
+
+                # Validate SNP ID
+                snp_id = parts[2]
+                if (not snp_id) or (snp_id == "."):
+                    sys.exit(
+                        f"ERROR: Line {line_number}: Missing or placeholder SNP ID. "
+                        "Ensure IDs are present and non-'.'."
+                    )
+
+                if snp_id in seen_ids:
+                    sys.exit(
+                        f"ERROR: Line {line_number}: Duplicate SNP ID '{snp_id}'. "
+                        "Ensure SNP IDs are unique."
+                    )
+                seen_ids.add(snp_id)
+
+                # ALT-based multiallelic detection
+                alt_field = parts[4]
+                if "," in alt_field:
+                    sys.exit(
+                        f"ERROR: Line {line_number}: Multiallelic site detected (ALT='{alt_field}'). "
+                        "Filter or split multiallelic sites before processing."
+                    )
+
+                # Validate FORMAT and sample fields
+                format_field = parts[8] if len(parts) > 8 else "GT"
+                sample_fields = parts[9:]
+
+                geno: list[float] = []
+                for sample_idx, sample_field in enumerate(sample_fields):
+                    gt = self._extract_gt(format_field, sample_field)
+
+                    # Detect multiallelic allele indices in GT
+                    try:
+                        alleles = [
+                            int(x)
+                            for x in gt.replace("|", "/").split("/")
+                            if x not in ("", ".")
+                        ]
+                    except ValueError:
+                        alleles = []
+
+                    if any(a > 1 for a in alleles):
+                        sys.exit(
+                            f"ERROR: Line {line_number}, Sample {sample_idx + 1}: "
+                            f"Multiallelic genotype detected (GT='{gt}'). "
+                            "Filter or split multiallelic sites before processing."
+                        )
+
+                    geno.append(self._gt_to_value(gt, self.ploidy, self.convert_het))
+
+                # Store validated data
+                self.snp_genotypes[snp_id] = [geno, sample_fields]
+                # Cache MAF for this SNP
+                self.snp_maf_cache[snp_id] = MDSearch._calculate_maf(
+                    self.snp_genotypes[snp_id][0], self.ploidy
+                )
+
+        # Final validation
+        if data_line_count == 0:
+            sys.exit(
+                "ERROR: No data lines found in VCF. "
+                "Ensure VCF contains variant records."
+            )
+
+        if self.verbose:
+            self.logger.info(
+                f"VCF validation complete: {data_line_count} variants, "
+                f"{len(samples)} samples processed successfully."
+            )
+
+    def _extract_gt(self, format_field: str, sample_field: str) -> str:
+        """Extract GT subfield from sample data."""
+        keys = format_field.split(":") if format_field else []
+        if "GT" not in keys:
+            return "."
+        gt_index = keys.index("GT")
+        parts = sample_field.split(":")
+        return parts[gt_index] if gt_index < len(parts) else "."
+
+    def _gt_to_value(self, gt: str, ploidy: int, convert_het: bool) -> float:
+        """Convert GT string to numeric value based on ploidy and het conversion."""
+        if "." in gt:
+            return np.nan
+        tokens = [t for t in gt.replace("|", "/").split("/") if t != ""]
+        try:
+            alleles = [int(x) for x in tokens]
+        except ValueError:
+            return np.nan
+        if len(alleles) == 1 and ploidy == 1:
+            return float(alleles[0])
+        count_alt = sum(1 for x in alleles if x == 1)
+        if count_alt == 0:
+            return 0.0
+        if count_alt == ploidy:
+            return 1.0
+        return np.nan if convert_het else count_alt / float(ploidy)
 
     @staticmethod
     def _calculate_maf(geno: list, ploidy: int) -> float:
