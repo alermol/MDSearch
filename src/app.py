@@ -9,7 +9,7 @@ from .core import VCFParser, DistanceCalculator, SNPSelector, LazyVCFData, VCFDa
 from .core.snp_selector import OverlapConstraints
 from .io import VCFWriter, WriteConfig, SummaryWriter
 from .utils import MemoryMonitor, setup_logger
-from .utils.indexing import ensure_variant_index
+from .utils import ensure_variant_index
 
 __all__ = ["MDSearchConfig", "MDSearchApp"]
 
