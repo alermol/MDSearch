@@ -109,7 +109,7 @@ Only `results_1.vcf` will be generated with `-ns 1` option.
 - Typical minimal distances:
   - `-md 1` for basic discrimination
   - `-md 2-3` for more robust discrimination
-- The script `generate_snp_pasport.py` in the `scripts` folder will generate a human-readable passport in the following format:
+- The script `generate_snp_passport.py` in the `scripts` folder will generate a human-readable passport in the following format:
   > sample_name: Chr:Coordinate(SNP_genotype); Chr:Coordinate(SNP_genotype); Chr:Coordinate(SNP_genotype)
 
 ## Testing
