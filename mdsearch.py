@@ -8,11 +8,119 @@ from typing import List, Dict, Set, Optional, Union, Any
 import numpy as np
 from itertools import combinations
 from math import floor
+import psutil
+import gc
 
 
 def parser_resolve_path(path: str) -> Path:
     """Resolve CLI-provided path string to an absolute Path."""
     return Path(path).resolve()
+
+
+class MemoryMonitor:
+    """Utility class for monitoring memory usage and providing warnings."""
+
+    # Dynamic threshold percentages of total system memory
+    WARNING_THRESHOLD_PERCENT = 50.0  # 50% of total system memory
+    CRITICAL_THRESHOLD_PERCENT = 90.0  # 90% of total system memory
+
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
+        self.process = psutil.Process()
+
+        # Calculate dynamic thresholds based on total system memory
+        total_memory_mb = psutil.virtual_memory().total / 1024 / 1024
+        self.warning_threshold_mb = total_memory_mb * (
+            self.WARNING_THRESHOLD_PERCENT / 100
+        )
+        self.critical_threshold_mb = total_memory_mb * (
+            self.CRITICAL_THRESHOLD_PERCENT / 100
+        )
+
+        # Log the calculated thresholds for transparency
+        self.logger.debug(
+            f"Memory thresholds calculated: Warning={self.warning_threshold_mb:.1f}MB "
+            f"({self.WARNING_THRESHOLD_PERCENT}%), Critical={self.critical_threshold_mb:.1f}MB "
+            f"({self.CRITICAL_THRESHOLD_PERCENT}%) of {total_memory_mb:.1f}MB total"
+        )
+
+    def get_memory_usage_mb(self) -> float:
+        """Get current memory usage in MB."""
+        return self.process.memory_info().rss / 1024 / 1024
+
+    def get_available_memory_mb(self) -> float:
+        """Get available system memory in MB."""
+        return psutil.virtual_memory().available / 1024 / 1024
+
+    def check_memory_and_warn(self, operation: str = "operation") -> None:
+        """Check current memory usage and warn if approaching limits."""
+        current_mb = self.get_memory_usage_mb()
+        available_mb = self.get_available_memory_mb()
+
+        if current_mb > self.critical_threshold_mb:
+            self.logger.warning(
+                f"CRITICAL: High memory usage during {operation}: {current_mb:.1f}MB "
+                f"(>{self.critical_threshold_mb:.1f}MB threshold). "
+                f"Available: {available_mb:.1f}MB. Consider using smaller datasets "
+                "or increase system memory."
+            )
+        elif current_mb > self.warning_threshold_mb:
+            self.logger.warning(
+                f"WARNING: Elevated memory usage during {operation}: {current_mb:.1f}MB "
+                f"(>{self.warning_threshold_mb:.1f}MB threshold). "
+                f"Available: {available_mb:.1f}MB. Monitor for potential issues."
+            )
+        else:
+            self.logger.debug(
+                f"Memory usage during {operation}: {current_mb:.1f}MB. "
+            )
+
+    def estimate_matrix_memory_mb(self, num_snps: int, num_samples: int) -> float:
+        """Estimate memory usage for genotype matrix in MB."""
+        # NumPy float64 = 8 bytes per element
+        matrix_bytes = num_snps * num_samples * 8
+        return matrix_bytes / 1024 / 1024
+
+    def get_threshold_info(self) -> Dict[str, float]:
+        """Get current memory threshold information."""
+        return {
+            "warning_threshold_mb": self.warning_threshold_mb,
+            "critical_threshold_mb": self.critical_threshold_mb,
+            "warning_percent": self.WARNING_THRESHOLD_PERCENT,
+            "critical_percent": self.CRITICAL_THRESHOLD_PERCENT,
+            "total_memory_mb": psutil.virtual_memory().total / 1024 / 1024,
+        }
+
+    def warn_for_large_dataset(self, num_snps: int, num_samples: int) -> None:
+        """Warn user about potential memory issues with large datasets."""
+        estimated_mb = self.estimate_matrix_memory_mb(num_snps, num_samples)
+        available_mb = self.get_available_memory_mb()
+
+        # Use dynamic thresholds for warnings
+        if estimated_mb > available_mb * 0.8:  # Using 80% of available memory
+            self.logger.warning(
+                f"MEMORY WARNING: Dataset ({num_snps} SNPs × {num_samples} samples) "
+                f"may require ~{estimated_mb:.1f}MB memory, but only {available_mb:.1f}MB available. "
+                "Consider reducing dataset size or using a machine with more memory."
+            )
+        elif estimated_mb > self.warning_threshold_mb:  # Use dynamic warning threshold
+            self.logger.warning(
+                f"Large dataset detected ({num_snps} SNPs × {num_samples} samples). "
+                f"Estimated memory usage ~{estimated_mb:.1f}MB exceeds warning threshold "
+                f"({self.warning_threshold_mb:.1f}MB). Monitor memory usage carefully."
+            )
+        elif (
+            estimated_mb > self.warning_threshold_mb * 0.5
+        ):  # Half of warning threshold
+            self.logger.info(
+                f"Large dataset detected ({num_snps} SNPs × {num_samples} samples). "
+                f"Estimated memory usage: ~{estimated_mb:.1f}MB"
+            )
+
+    def force_garbage_collection(self) -> None:
+        """Force garbage collection to free up memory."""
+        gc.collect()
+        self.logger.debug("Forced garbage collection completed")
 
 
 class MDSearch:
@@ -79,6 +187,10 @@ class MDSearch:
         level_name = (log_level or ("INFO" if verbose else "WARNING")).upper()
         level = getattr(logging, level_name, logging.INFO)
         self.logger.setLevel(level)
+
+        # Initialize memory monitor
+        self.memory_monitor = MemoryMonitor(self.logger)
+        self.memory_monitor.check_memory_and_warn("initialization")
 
         # Validate mutually exclusive overlap constraints
         if (self.overlap_max_number is not None and self.overlap_max_number >= 0) and (
@@ -258,6 +370,10 @@ class MDSearch:
                 f"{len(samples)} samples processed successfully."
             )
 
+        # Check memory usage after VCF parsing and warn for large datasets
+        self.memory_monitor.check_memory_and_warn("VCF parsing")
+        self.memory_monitor.warn_for_large_dataset(data_line_count, len(samples))
+
     def _extract_gt(self, format_field: str, sample_field: str) -> str:
         """Extract GT subfield from sample data."""
         keys = format_field.split(":") if format_field else []
@@ -319,9 +435,13 @@ class MDSearch:
             self.logger.info(
                 f"Calculate pairwise distance based on {len(snps)} SNPs..."
             )
+
+        # Monitor memory before creating large arrays
+        self.memory_monitor.check_memory_and_warn("distance calculation start")
+
         snps_array = np.array([i for i in snps])  # shape: (num_snps, num_samples)
         num_samples = snps_array.shape[1]
-        pairwise_distances: list[float] = []
+        pairwise_distances: List[float] = []
         if num_samples <= 1:
             if self.verbose:
                 self.logger.info("Distance between samples (min/med/avg/max): 0/0/0/0")
@@ -341,6 +461,10 @@ class MDSearch:
                 "Distance between samples (min/med/avg/max): "
                 f"{np.min(res)}/{np.median(res)}/{round(float(np.mean(res)), 1)}/{np.max(res)}"
             )
+
+        # Monitor memory after distance calculation
+        self.memory_monitor.check_memory_and_warn("distance calculation complete")
+
         return float(np.min(res))
 
     def select_first_snp(self, excluded: Optional[Set[str]] = None) -> str:
@@ -425,7 +549,10 @@ class MDSearch:
         totals incrementally when SNPs are removed.
         """
         if self.verbose:
-            self.logger.info("Backward one-by-one elimination (deterministic)...")
+            self.logger.info("Backward one-by-one elimination...")
+
+        # Monitor memory before creating large matrices
+        self.memory_monitor.check_memory_and_warn("elimination algorithm start")
 
         optimized_ids: List[str] = list(snp_set)
         # Build matrix (rows=SNPs, cols=samples) in current order
@@ -433,10 +560,10 @@ class MDSearch:
         num_snps, num_samples = snps_matrix.shape
 
         # Precompute per-row contributions to upper-triangle pairwise distances
-        pair_contribs: list[np.ndarray] = []
+        pair_contribs: List[np.ndarray] = []
         for r in range(num_snps):
             row = snps_matrix[r, :]
-            row_contrib_parts: list[np.ndarray] = []
+            row_contrib_parts: List[np.ndarray] = []
             for i in range(num_samples - 1):
                 vi = row[i]
                 rest = row[i + 1 :]
@@ -473,6 +600,11 @@ class MDSearch:
                 current_pair_dists = candidate_pair_dists
                 if contrib_matrix.size:
                     contrib_matrix = np.delete(contrib_matrix, idx, axis=0)
+
+        # Monitor memory after elimination algorithm and force cleanup
+        self.memory_monitor.check_memory_and_warn("elimination algorithm complete")
+        self.memory_monitor.force_garbage_collection()
+
         return optimized_ids
 
     def optimal_snp_set_search(self) -> List[List[str]]:
@@ -675,6 +807,12 @@ class MDSearch:
             self.logger.info("Done")
         # Optional summary TSV
         self.write_summary_tsv(selected_snps)
+
+        # Final memory usage summary
+        self.memory_monitor.check_memory_and_warn("processing complete")
+        if self.verbose:
+            final_memory = self.memory_monitor.get_memory_usage_mb()
+            self.logger.info(f"Final memory usage: {final_memory:.1f}MB")
 
 
 if __name__ == "__main__":
