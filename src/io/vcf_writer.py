@@ -36,13 +36,22 @@ class VCFWriter:
                     if vcf_line.startswith("#"):
                         outvcf.write(vcf_line)
                     else:
-                        line = vcf_line.strip().split("\t")
-                        if (line[2] in s) and config.convert_het:
-                            self._write_line_with_het_conversion(line, outvcf, config)
-                        elif (line[2] in s) and (not config.convert_het):
-                            outvcf.write(vcf_line)
-                        else:
+                        parts = vcf_line.rstrip("\n").split("\t")
+                        # Robust guards for malformed/blank lines
+                        if len(parts) < 3:
                             continue
+                        snp_id = parts[2]
+                        if snp_id not in s:
+                            continue
+
+                        if config.convert_het:
+                            # If not enough columns for FORMAT/SAMPLES, write as-is
+                            if len(parts) < 9:
+                                outvcf.write(vcf_line)
+                            else:
+                                self._write_line_with_het_conversion(parts, outvcf, config)
+                        else:
+                            outvcf.write(vcf_line)
 
     def _write_line_with_het_conversion(
         self, line: List[str], outvcf: TextIO, config: WriteConfig
