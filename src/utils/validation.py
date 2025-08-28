@@ -8,7 +8,7 @@ def validate_cli_arguments(args: argparse.Namespace) -> None:
     """Validate CLI argument combinations and constraints."""
     # Validate mutually exclusive overlap constraints
     validate_overlap_constraints(args.oMx, args.oMf)
-    
+
     # Validate CLI numeric constraints early
     if args.ts is not None and args.ts < 0:
         sys.exit("-ts (total SNPs) must be >= 0")

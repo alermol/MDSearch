@@ -6,6 +6,6 @@ from .summary_writer import SummaryWriter, SetStatistics
 __all__ = [
     "VCFWriter",
     "WriteConfig",
-    "SummaryWriter", 
+    "SummaryWriter",
     "SetStatistics",
 ]

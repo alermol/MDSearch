@@ -1,11 +1,13 @@
 """Hamming distance calculation optimized for large datasets."""
 
 import logging
-from typing import List
+from typing import List, Dict
 
 import numpy as np
+from numpy.typing import NDArray
 
 from ..utils.memory_monitor import MemoryMonitor
+from .vcf_parser import SNPData
 
 
 class DistanceCalculator:
@@ -48,7 +50,7 @@ class DistanceCalculator:
             dists = diffs.sum(axis=0).astype(float)  # per pair distances vs column i
             pairwise_distances.extend(dists.tolist())
             
-        res = np.array(pairwise_distances, dtype=float)
+        res: NDArray[np.float64] = np.array(pairwise_distances, dtype=float)
         
         if self.logger.isEnabledFor(logging.INFO):
             self.logger.info(
@@ -61,7 +63,7 @@ class DistanceCalculator:
 
         return float(np.min(res))
     
-    def calc_distance_for_snp_ids(self, snp_ids: List[str], snp_data: dict) -> float:
+    def calc_distance_for_snp_ids(self, snp_ids: List[str], snp_data: Dict[str, SNPData]) -> float:
         """Helper computing minimal distance for a list of SNP IDs."""
         if not snp_ids:
             return 0.0

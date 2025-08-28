@@ -3,7 +3,7 @@
 import sys
 import logging
 from pathlib import Path
-from typing import List, Dict, Set, Union, Any
+from typing import List, Dict, Set, Union, Any, Tuple
 from dataclasses import dataclass
 
 from ..utils.memory_monitor import MemoryMonitor
@@ -125,7 +125,7 @@ class VCFParser:
         headers: VCFHeaders, 
         ploidy: int, 
         convert_het: bool
-    ) -> tuple[Dict[str, SNPData], Dict[str, float]]:
+    ) -> Tuple[Dict[str, SNPData], Dict[str, float]]:
         """Parse and validate variant lines."""
         seen_ids: Set[str] = set()
         data_line_count = 0

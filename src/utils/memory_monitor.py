@@ -36,11 +36,13 @@ class MemoryMonitor:
 
     def get_memory_usage_mb(self) -> float:
         """Get current memory usage in MB."""
-        return self.process.memory_info().rss / 1024 / 1024
+        rss: int = self.process.memory_info().rss
+        return float(rss / 1024 / 1024)
 
     def get_available_memory_mb(self) -> float:
         """Get available system memory in MB."""
-        return psutil.virtual_memory().available / 1024 / 1024
+        available: int = psutil.virtual_memory().available
+        return float(available / 1024 / 1024)
 
     def check_memory_and_warn(self, operation: str = "operation") -> None:
         """Check current memory usage and warn if approaching limits."""

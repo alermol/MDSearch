@@ -9,7 +9,7 @@ from typing import Optional
 class JsonFormatter(logging.Formatter):
     """Custom JSON formatter for structured logging."""
     
-    def format(self, record: logging.LogRecord) -> str:  # type: ignore[override]
+    def format(self, record: logging.LogRecord) -> str:
         payload = {
             "level": record.levelname,
             "message": record.getMessage(),

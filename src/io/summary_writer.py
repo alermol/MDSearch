@@ -5,6 +5,7 @@ from typing import List
 from dataclasses import dataclass
 
 from ..core.distance_calculator import DistanceCalculator
+from ..core.vcf_parser import VCFData
 
 
 @dataclass
@@ -27,7 +28,7 @@ class SummaryWriter:
                      snp_sets: List[List[str]], 
                      output_prefix: Path,
                      output_path: Path,
-                     vcf_data) -> None:
+                     vcf_data: VCFData) -> None:
         """Write per-set summary statistics to TSV."""
         header = [
             "set_index",

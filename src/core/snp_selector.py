@@ -8,6 +8,7 @@ from itertools import combinations
 from math import floor
 
 import numpy as np
+from numpy.typing import NDArray
 
 from .distance_calculator import DistanceCalculator
 from .vcf_parser import VCFData, SNPData
@@ -126,10 +127,10 @@ class SNPSelector:
         num_snps, num_samples = snps_matrix.shape
 
         # Precompute per-row contributions to upper-triangle pairwise distances
-        pair_contribs: List[np.ndarray] = []
+        pair_contribs: List[NDArray[np.int32]] = []
         for r in range(num_snps):
             row = snps_matrix[r, :]
-            row_contrib_parts: List[np.ndarray] = []
+            row_contrib_parts: List[NDArray[np.int32]] = []
             for i in range(num_samples - 1):
                 vi = row[i]
                 rest = row[i + 1 :]

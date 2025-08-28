@@ -1,7 +1,7 @@
 """VCF file output operations."""
 
 from pathlib import Path
-from typing import List
+from typing import List, TextIO
 from dataclasses import dataclass
 
 from ..core.genotype_utils import extract_gt, is_het
@@ -41,7 +41,7 @@ class VCFWriter:
                             
     def _write_line_with_het_conversion(self, 
                                        line: List[str], 
-                                       outvcf, 
+                                       outvcf: TextIO, 
                                        config: WriteConfig) -> None:
         """Write VCF line with heterozygous calls converted to missing."""
         format_field = line[8] if len(line) > 8 else "GT"

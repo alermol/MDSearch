@@ -30,13 +30,18 @@ def gt_to_value(
     count_alt = sum(1 for x in alleles if x == 1)
     if count_alt == 0:
         return 0.0
-    if count_alt == ploidy:
+    if ploidy is not None and count_alt == ploidy:
         return 1.0
+    if ploidy is None:
+        return np.nan
     return np.nan if convert_het else count_alt / float(ploidy)
 
 
 def calculate_maf(geno: List[float], ploidy: Optional[int]) -> float:
     """Compute minor allele frequency for a SNP given numeric genotypes."""
+    if ploidy is None:
+        return 0.0
+        
     allele0 = 0.0
     allele1 = 0.0
     valid_genotypes = 0
