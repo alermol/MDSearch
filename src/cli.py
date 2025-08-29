@@ -2,12 +2,38 @@
 
 import argparse
 from pathlib import Path
+import subprocess
+from datetime import datetime, timezone
+import platform
 
 from .app import MDSearchApp, MDSearchConfig
 from .core.snp_selector import OverlapConstraints
 from .utils.validation import validate_cli_arguments
+from . import __version__
 
 __all__ = ["parser_resolve_path", "create_parser", "main"]
+
+
+def _get_git_commit() -> str:
+    """Return short git commit hash if available, else 'unknown'."""
+    try:
+        res = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        return res.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _build_version_string() -> str:
+    """Compose version string with build and runtime info."""
+    commit = _get_git_commit()
+    py = platform.python_version()
+    return f"MDSearch {__version__} (commit hash {commit})\nPython {py}"
 
 
 def parser_resolve_path(path: str) -> Path:
@@ -51,6 +77,14 @@ def create_parser() -> argparse.ArgumentParser:
             "Notes: Input VCF must be bi-allelic with SNP IDs present. "
             "Multiallelics are rejected via ALT or GT."
         ),
+    )
+
+    # Version flag
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=_build_version_string(),
+        help="Show program's version number and build info and exit",
     )
 
     parser.add_argument(

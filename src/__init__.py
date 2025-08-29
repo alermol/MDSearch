@@ -10,7 +10,7 @@ from .core.distance_calculator import DistanceCalculator
 from .core.snp_selector import SNPSelector
 from .utils.memory_monitor import MemoryMonitor
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 __all__ = [
     "MDSearchApp",
     "MDSearchConfig",
