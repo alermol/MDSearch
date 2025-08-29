@@ -69,11 +69,36 @@ class LRUCache:
     """Simple LRU cache for SNP data."""
 
     def __init__(self, max_size: int = 1000):
+        """Initialize LRU cache with maximum size.
+
+        Args:
+            max_size: Maximum number of SNPs to keep in cache
+
+        Example:
+            >>> cache = LRUCache(max_size=500)
+            >>> cache.max_size
+            500
+        """
         self.max_size = max_size
         self.cache: OrderedDict[str, SNPData] = OrderedDict()
 
     def get(self, key: str) -> Optional[SNPData]:
-        """Get item from cache and move it to end (most recently used)."""
+        """Get item from cache and move it to end (most recently used).
+
+        Args:
+            key: SNP ID to retrieve
+
+        Returns:
+            SNPData if found, None otherwise
+
+        Example:
+            >>> cache = LRUCache()
+            >>> snp_data = SNPData(genotypes=[0.0, 1.0], sample_fields=["0/0", "0/1"], maf=0.5)
+            >>> cache.put("rs123", snp_data)
+            >>> retrieved = cache.get("rs123")
+            >>> retrieved.maf
+            0.5
+        """
         if key in self.cache:
             # Move to end (most recently used)
             self.cache.move_to_end(key)
@@ -81,7 +106,23 @@ class LRUCache:
         return None
 
     def put(self, key: str, value: SNPData) -> None:
-        """Add item to cache, evicting least recently used if needed."""
+        """Add item to cache, evicting least recently used if needed.
+
+        Args:
+            key: SNP ID to store
+            value: SNPData to cache
+
+        Example:
+            >>> cache = LRUCache(max_size=2)
+            >>> snp1 = SNPData(genotypes=[0.0, 1.0], sample_fields=["0/0", "0/1"], maf=0.5)
+            >>> snp2 = SNPData(genotypes=[1.0, 0.0], sample_fields=["1/1", "0/0"], maf=0.5)
+            >>> snp3 = SNPData(genotypes=[0.0, 0.0], sample_fields=["0/0", "0/0"], maf=0.0)
+            >>> cache.put("rs1", snp1)
+            >>> cache.put("rs2", snp2)
+            >>> cache.put("rs3", snp3)  # This will evict rs1
+            >>> "rs1" in cache
+            False
+        """
         if key in self.cache:
             # Update existing item and move to end
             self.cache[key] = value
@@ -94,11 +135,33 @@ class LRUCache:
                 self.cache.popitem(last=False)  # Remove first (least recently used)
 
     def clear(self) -> None:
-        """Clear all cached data."""
+        """Clear all cached data.
+
+        Example:
+            >>> cache = LRUCache()
+            >>> cache.put("rs123", SNPData(genotypes=[0.0], sample_fields=["0/0"], maf=0.0))
+            >>> cache.size()
+            1
+            >>> cache.clear()
+            >>> cache.size()
+            0
+        """
         self.cache.clear()
 
     def size(self) -> int:
-        """Return current cache size."""
+        """Return current cache size.
+
+        Returns:
+            Number of SNPs currently cached
+
+        Example:
+            >>> cache = LRUCache(max_size=1000)
+            >>> cache.size()
+            0
+            >>> cache.put("rs123", SNPData(genotypes=[0.0], sample_fields=["0/0"], maf=0.0))
+            >>> cache.size()
+            1
+        """
         return len(self.cache)
 
 
@@ -117,7 +180,23 @@ class LazyVCFData:
     _logger: Optional[logging.Logger] = None
 
     def get_snp_data(self, snp_id: str) -> SNPData:
-        """Get SNP data with lazy loading and caching."""
+        """Get SNP data with lazy loading and caching.
+
+        Args:
+            snp_id: SNP identifier to retrieve
+
+        Returns:
+            SNPData containing genotypes and metadata
+
+        Raises:
+            KeyError: If SNP ID not found in metadata
+
+        Example:
+            >>> # Assuming lazy_vcf_data is initialized with VCF file
+            >>> snp_data = lazy_vcf_data.get_snp_data("rs123")
+            >>> print(f"SNP {snp_data.maf:.2f} MAF, {len(snp_data.genotypes)} samples")
+            SNP 0.45 MAF, 100 samples
+        """
         # Check cache first
         cached_data = self._cache.get(snp_id)
         if cached_data is not None:
@@ -216,11 +295,30 @@ class LazyVCFData:
 
     @property
     def snp_genotypes(self) -> "LazyGenotypesDict":
-        """Provide backward compatibility by creating a dict-like interface."""
+        """Provide backward compatibility by creating a dict-like interface.
+
+        Returns:
+            LazyGenotypesDict that provides dict-like access to SNP data
+
+        Example:
+            >>> # Access SNP data like a regular dictionary
+            >>> snp_data = lazy_vcf_data.snp_genotypes["rs123"]
+            >>> print(f"Found {len(snp_data.genotypes)} genotypes")
+            Found 100 genotypes
+        """
         return LazyGenotypesDict(self)
 
     def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache performance statistics."""
+        """Get cache performance statistics.
+
+        Returns:
+            Dictionary with cache size, max size, and total SNPs
+
+        Example:
+            >>> stats = lazy_vcf_data.get_cache_stats()
+            >>> print(f"Cache: {stats['cache_size']}/{stats['max_cache_size']} SNPs")
+            Cache: 45/1000 SNPs
+        """
         return {
             "cache_size": self._cache.size(),
             "max_cache_size": self._cache.max_size,
@@ -232,36 +330,140 @@ class LazyGenotypesDict:
     """Dict-like interface for lazy loaded SNP genotypes."""
 
     def __init__(self, lazy_vcf_data: LazyVCFData):
+        """Initialize with reference to lazy VCF data.
+
+        Args:
+            lazy_vcf_data: LazyVCFData instance to wrap
+        """
         self._lazy_data = lazy_vcf_data
 
     def __getitem__(self, snp_id: str) -> SNPData:
+        """Get SNP data by ID, triggering lazy loading if needed.
+
+        Args:
+            snp_id: SNP identifier
+
+        Returns:
+            SNPData for the requested SNP
+
+        Example:
+            >>> genotypes = lazy_vcf_data.snp_genotypes
+            >>> snp_data = genotypes["rs123"]  # Triggers lazy loading
+            >>> print(f"SNP has {len(snp_data.genotypes)} samples")
+            SNP has 100 samples
+        """
         return self._lazy_data.get_snp_data(snp_id)
 
     def __contains__(self, snp_id: str) -> bool:
+        """Check if SNP ID exists in metadata.
+
+        Args:
+            snp_id: SNP identifier to check
+
+        Returns:
+            True if SNP exists, False otherwise
+
+        Example:
+            >>> genotypes = lazy_vcf_data.snp_genotypes
+            >>> "rs123" in genotypes
+            True
+            >>> "nonexistent" in genotypes
+            False
+        """
         return snp_id in self._lazy_data.snp_metadata
 
     def __iter__(self) -> Iterator[str]:
+        """Iterate over SNP IDs.
+
+        Returns:
+            Iterator of SNP identifiers
+
+        Example:
+            >>> genotypes = lazy_vcf_data.snp_genotypes
+            >>> snp_ids = list(genotypes)[:5]  # Get first 5 SNP IDs
+            >>> print(f"First 5 SNPs: {snp_ids}")
+            First 5 SNPs: ['rs1', 'rs2', 'rs3', 'rs4', 'rs5']
+        """
         return iter(self._lazy_data.snp_metadata.keys())
 
     def __len__(self) -> int:
+        """Return total number of SNPs.
+
+        Returns:
+            Number of SNPs in the dataset
+
+        Example:
+            >>> genotypes = lazy_vcf_data.snp_genotypes
+            >>> print(f"Total SNPs: {len(genotypes)}")
+            Total SNPs: 1000
+        """
         return len(self._lazy_data.snp_metadata)
 
     def items(self) -> Iterator[Tuple[str, SNPData]]:
-        """Iterate over SNP ID and data pairs (loads data lazily)."""
+        """Iterate over SNP ID and data pairs (loads data lazily).
+
+        Returns:
+            Iterator of (SNP ID, SNPData) tuples
+
+        Example:
+            >>> genotypes = lazy_vcf_data.snp_genotypes
+            >>> for snp_id, snp_data in genotypes.items():
+            ...     print(f"{snp_id}: MAF={snp_data.maf:.2f}")
+            ...     break  # Just show first one
+            rs1: MAF=0.45
+        """
         for snp_id in self._lazy_data.snp_metadata:
             yield snp_id, self._lazy_data.get_snp_data(snp_id)
 
     def keys(self) -> Iterator[str]:
-        """Return SNP IDs."""
+        """Return SNP IDs.
+
+        Returns:
+            Iterator of SNP identifiers
+
+        Example:
+            >>> genotypes = lazy_vcf_data.snp_genotypes
+            >>> snp_ids = list(genotypes.keys())[:3]
+            >>> print(f"SNP IDs: {snp_ids}")
+            SNP IDs: ['rs1', 'rs2', 'rs3']
+        """
         return iter(self._lazy_data.snp_metadata.keys())
 
     def values(self) -> Iterator[SNPData]:
-        """Return SNP data (loads all data - use carefully!)."""
+        """Return SNP data (loads all data - use carefully!).
+
+        Returns:
+            Iterator of SNPData objects
+
+        Example:
+            >>> genotypes = lazy_vcf_data.snp_genotypes
+            >>> # Be careful - this loads ALL SNP data into memory
+            >>> all_snps = list(genotypes.values())
+            >>> print(f"Loaded {len(all_snps)} SNPs")
+            Loaded 1000 SNPs
+        """
         for snp_id in self._lazy_data.snp_metadata:
             yield self._lazy_data.get_snp_data(snp_id)
 
     def get(self, snp_id: str, default: Optional[SNPData] = None) -> Optional[SNPData]:
-        """Get SNP data with optional default."""
+        """Get SNP data with optional default.
+
+        Args:
+            snp_id: SNP identifier to retrieve
+            default: Value to return if SNP not found
+
+        Returns:
+            SNPData if found, default value otherwise
+
+        Example:
+            >>> genotypes = lazy_vcf_data.snp_genotypes
+            >>> snp_data = genotypes.get("rs123", None)
+            >>> if snp_data:
+            ...     print(f"Found SNP with MAF {snp_data.maf}")
+            ... else:
+            ...     print("SNP not found")
+            Found SNP with MAF 0.45
+        """
         try:
             return self._lazy_data.get_snp_data(snp_id)
         except KeyError:
@@ -272,13 +474,45 @@ class VCFParser:
     """Handles VCF file parsing and validation."""
 
     def __init__(self, memory_monitor: MemoryMonitor, logger: logging.Logger):
+        """Initialize VCF parser with memory monitoring and logging.
+
+        Args:
+            memory_monitor: MemoryMonitor instance for tracking memory usage
+            logger: Logger instance for output
+
+        Example:
+            >>> from src.utils.memory_monitor import MemoryMonitor
+            >>> from src.utils.logging_setup import setup_logger
+            >>> logger = setup_logger("vcf_parser")
+            >>> memory_monitor = MemoryMonitor(logger)
+            >>> parser = VCFParser(memory_monitor, logger)
+        """
         self.memory_monitor = memory_monitor
         self.logger = logger
 
     def parse_and_validate(
         self, vcf_path: Path, ploidy: int, convert_het: bool
     ) -> VCFData:
-        """Parse VCF file and return structured data (loads all SNPs into memory)."""
+        """Parse VCF file and return structured data (loads all SNPs into memory).
+
+        Args:
+            vcf_path: Path to VCF file to parse
+            ploidy: Ploidy level (e.g., 2 for diploid)
+            convert_het: Whether to convert heterozygous calls to missing
+
+        Returns:
+            VCFData containing all SNP information
+
+        Example:
+            >>> parser = VCFParser(memory_monitor, logger)
+            >>> vcf_data = parser.parse_and_validate(
+            ...     Path("sample.vcf"), ploidy=2, convert_het=False
+            ... )
+            >>> print(f"Parsed {len(vcf_data.snp_genotypes)} SNPs")
+            >>> print(f"Found {len(vcf_data.headers.samples)} samples")
+            Parsed 1000 SNPs
+            Found 50 samples
+        """
         # First pass: validate headers and count samples
         headers = self._validate_headers(vcf_path)
 
@@ -300,7 +534,27 @@ class VCFParser:
     def parse_and_validate_lazy(
         self, vcf_path: Path, ploidy: int, convert_het: bool, cache_size: int = 1000
     ) -> LazyVCFData:
-        """Parse VCF file and return lazy-loaded data structure (minimal memory usage)."""
+        """Parse VCF file and return lazy-loaded data structure (minimal memory usage).
+
+        Args:
+            vcf_path: Path to VCF file to parse
+            ploidy: Ploidy level (e.g., 2 for diploid)
+            convert_het: Whether to convert heterozygous calls to missing
+            cache_size: Maximum number of SNPs to keep in memory cache
+
+        Returns:
+            LazyVCFData with lazy loading capabilities
+
+        Example:
+            >>> parser = VCFParser(memory_monitor, logger)
+            >>> lazy_vcf_data = parser.parse_and_validate_lazy(
+            ...     Path("large_sample.vcf"), ploidy=2, convert_het=False, cache_size=500
+            ... )
+            >>> print(f"Metadata for {len(lazy_vcf_data.snp_metadata)} SNPs loaded")
+            >>> # Access individual SNPs as needed
+            >>> snp_data = lazy_vcf_data.get_snp_data("rs123")
+            Metadata for 10000 SNPs loaded
+        """
         # First pass: validate headers and count samples
         headers = self._validate_headers(vcf_path)
 

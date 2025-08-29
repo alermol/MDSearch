@@ -43,6 +43,22 @@ class SNPSelector:
         memory_monitor: MemoryMonitor,
         logger: logging.Logger,
     ):
+        """Initialize SNP selector with required components.
+
+        Args:
+            distance_calculator: DistanceCalculator instance for computing distances
+            memory_monitor: MemoryMonitor instance for tracking memory usage
+            logger: Logger instance for output
+
+        Example:
+            >>> from src.core.distance_calculator import DistanceCalculator
+            >>> from src.utils.memory_monitor import MemoryMonitor
+            >>> from src.utils.logging_setup import setup_logger
+            >>> logger = setup_logger("snp_selector")
+            >>> memory_monitor = MemoryMonitor(logger)
+            >>> distance_calc = DistanceCalculator(memory_monitor, logger)
+            >>> selector = SNPSelector(distance_calc, memory_monitor, logger)
+        """
         self.distance_calc = distance_calculator
         self.memory_monitor = memory_monitor
         self.logger = logger
@@ -50,7 +66,25 @@ class SNPSelector:
     def select_first_snp(
         self, vcf_data: VCFDataType, excluded: Optional[Set[str]] = None
     ) -> str:
-        """Select SNP with highest MAF not in excluded; tie-break by SNP ID."""
+        """Select SNP with highest MAF not in excluded; tie-break by SNP ID.
+
+        Args:
+            vcf_data: VCF data containing SNP information
+            excluded: Set of SNP IDs to exclude from selection
+
+        Returns:
+            SNP ID with highest MAF (or lexicographically first if tied)
+
+        Raises:
+            SystemExit: If no SNPs available after exclusions
+
+        Example:
+            >>> selector = SNPSelector(distance_calc, memory_monitor, logger)
+            >>> excluded_snps = {"rs999"}  # Exclude specific SNP
+            >>> first_snp = selector.select_first_snp(vcf_data, excluded=excluded_snps)
+            >>> print(f"Selected first SNP: {first_snp}")
+            Selected first SNP: rs123
+        """
         excluded = excluded or set()
         candidates = []
 
@@ -75,7 +109,28 @@ class SNPSelector:
         log_start: bool = True,
         log_distances: bool = True,
     ) -> List[str]:
-        """Greedily build initial SNP set maximizing MAF under exclusions."""
+        """Greedily build initial SNP set maximizing MAF under exclusions.
+
+        Args:
+            vcf_data: VCF data containing SNP information
+            min_distance: Minimum Hamming distance required between samples
+            excluded: Set of SNP IDs to exclude from selection
+            log_start: Whether to log start of primary selection
+            log_distances: Whether to log distance calculations
+
+        Returns:
+            List of SNP IDs forming primary set
+
+        Example:
+            >>> selector = SNPSelector(distance_calc, memory_monitor, logger)
+            >>> primary_set = selector.build_primary_set(
+            ...     vcf_data, min_distance=3, excluded={"rs999"}
+            ... )
+            >>> print(f"Primary set contains {len(primary_set)} SNPs")
+            >>> print(f"SNPs: {', '.join(primary_set)}")
+            Primary set contains 5 SNPs
+            SNPs: rs123, rs456, rs789, rs101, rs202
+        """
         excluded = excluded or set()
         current_snp_set: List[str] = []
         current_snps_geno: List[List[float]] = []
@@ -131,6 +186,26 @@ class SNPSelector:
         Optimized to avoid repeated distance recomputation by precomputing per-SNP
         contributions to pairwise distances across the upper triangle and updating
         totals incrementally when SNPs are removed.
+
+        Args:
+            snp_set: List of SNP IDs to optimize
+            vcf_data: VCF data containing SNP information
+            min_distance: Minimum Hamming distance to maintain
+            log_start: Whether to log start of elimination process
+
+        Returns:
+            Optimized list of SNP IDs with minimal distance preserved
+
+        Example:
+            >>> selector = SNPSelector(distance_calc, memory_monitor, logger)
+            >>> primary_set = ["rs1", "rs2", "rs3", "rs4", "rs5"]
+            >>> optimized_set = selector.deterministic_eliminate(
+            ...     primary_set, vcf_data, min_distance=3
+            ... )
+            >>> print(f"Optimized from {len(primary_set)} to {len(optimized_set)} SNPs")
+            >>> print(f"Removed: {set(primary_set) - set(optimized_set)}")
+            Optimized from 5 to 3 SNPs
+            Removed: {'rs2', 'rs4'}
         """
         if log_start and self.logger.isEnabledFor(logging.INFO):
             self.logger.info("Backward one-by-one elimination...")
@@ -202,7 +277,36 @@ class SNPSelector:
         max_snps: int,
         overlap_constraints: OverlapConstraints,
     ) -> List[List[str]]:
-        """Find up to n_sets minimal discriminating SNP lists under constraints."""
+        """Find up to n_sets minimal discriminating SNP lists under constraints.
+
+        Args:
+            vcf_data: VCF data containing SNP information
+            min_distance: Minimum Hamming distance required between samples
+            n_sets: Number of alternative SNP sets to generate
+            max_snps: Maximum SNPs per set (0 = keep minimal)
+            overlap_constraints: Constraints on overlap between alternative sets
+
+        Returns:
+            List of SNP sets, each containing a list of SNP IDs
+
+        Raises:
+            SystemExit: If insufficient SNPs available for discrimination
+
+        Example:
+            >>> selector = SNPSelector(distance_calc, memory_monitor, logger)
+            >>> constraints = OverlapConstraints(max_number=2, max_fraction=-1.0)
+            >>> optimal_sets = selector.search_optimal_sets(
+            ...     vcf_data, min_distance=3, n_sets=3, max_snps=10,
+            ...     overlap_constraints=constraints
+            ... )
+            >>> print(f"Generated {len(optimal_sets)} optimal SNP sets")
+            >>> for i, snp_set in enumerate(optimal_sets):
+            ...     print(f"Set {i+1}: {len(snp_set)} SNPs")
+            Generated 3 optimal SNP sets
+            Set 1: 5 SNPs
+            Set 2: 6 SNPs
+            Set 3: 5 SNPs
+        """
         # Base minimal set
         try:
             base_primary = self.build_primary_set(

@@ -11,12 +11,35 @@ __all__ = ["parser_resolve_path", "create_parser", "main"]
 
 
 def parser_resolve_path(path: str) -> Path:
-    """Resolve CLI-provided path string to an absolute Path."""
+    """Resolve CLI-provided path string to an absolute Path.
+
+    Args:
+        path: Path string from command line
+
+    Returns:
+        Resolved absolute Path object
+
+    Example:
+        >>> parser_resolve_path("sample.vcf")
+        PosixPath('/absolute/path/to/sample.vcf')
+        >>> parser_resolve_path("./relative/path.vcf")
+        PosixPath('/absolute/path/to/relative/path.vcf')
+    """
     return Path(path).resolve()
 
 
 def create_parser() -> argparse.ArgumentParser:
-    """Create and configure argument parser."""
+    """Create and configure argument parser.
+
+    Returns:
+        Configured ArgumentParser with all MDSearch options
+
+    Example:
+        >>> parser = create_parser()
+        >>> args = parser.parse_args(["input.vcf", "output", "-pl", "2", "-md", "3"])
+        >>> print(f"Input: {args.ivcf}, Ploidy: {args.pl}, Min distance: {args.md}")
+        Input: input.vcf, Ploidy: 2, Min distance: 3
+    """
     parser = argparse.ArgumentParser(
         description=(
             "Select minimal discriminatory SNP sets from a VCF given a minimal "
@@ -162,7 +185,24 @@ def create_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    """CLI entry point."""
+    """CLI entry point.
+
+    This function:
+    1. Parses command line arguments
+    2. Validates argument combinations
+    3. Creates application configuration
+    4. Runs the MDSearch pipeline
+
+    Example:
+        >>> # Command line usage:
+        >>> # python -m src.cli input.vcf output -pl 2 -md 3 -ns 2
+        >>> #
+        >>> # Programmatic usage:
+        >>> import sys
+        >>> sys.argv = ["mdsearch", "input.vcf", "output", "-pl", "2", "-md", "3"]
+        >>> main()
+        >>> # Will process input.vcf and create output_1.vcf, output_2.vcf
+    """
     parser = create_parser()
     args = parser.parse_args()
 

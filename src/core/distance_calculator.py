@@ -28,6 +28,20 @@ class DistanceCalculator:
         logger: logging.Logger,
         show_progress: bool = True,
     ):
+        """Initialize distance calculator with memory monitoring and logging.
+
+        Args:
+            memory_monitor: MemoryMonitor instance for tracking memory usage
+            logger: Logger instance for output
+            show_progress: Whether to show progress bars for large datasets
+
+        Example:
+            >>> from src.utils.memory_monitor import MemoryMonitor
+            >>> from src.utils.logging_setup import setup_logger
+            >>> logger = setup_logger("distance_calc")
+            >>> memory_monitor = MemoryMonitor(logger)
+            >>> calc = DistanceCalculator(memory_monitor, logger, show_progress=True)
+        """
         self.memory_monitor = memory_monitor
         self.logger = logger
         self.show_progress = show_progress
@@ -37,6 +51,25 @@ class DistanceCalculator:
 
         Optimized: compute only upper-triangle pairwise distances (j > i) and avoid
         self-pairs. Uses vectorized comparisons per anchor column.
+
+        Args:
+            snps: List of SNP genotype lists, each containing sample genotypes
+            log: Whether to log distance statistics
+
+        Returns:
+            Minimum Hamming distance between any pair of samples
+
+        Example:
+            >>> calc = DistanceCalculator(memory_monitor, logger)
+            >>> # Example with 3 SNPs and 4 samples
+            >>> snp_genotypes = [
+            ...     [0.0, 1.0, 0.0, 1.0],  # SNP 1: samples 0,1,2,3
+            ...     [1.0, 1.0, 0.0, 0.0],  # SNP 2: samples 0,1,2,3
+            ...     [0.0, 0.0, 1.0, 1.0],  # SNP 3: samples 0,1,2,3
+            ... ]
+            >>> min_dist = calc.calc_min_distance(snp_genotypes)
+            >>> print(f"Minimum distance between samples: {min_dist}")
+            Minimum distance between samples: 2.0
         """
         if log and self.logger.isEnabledFor(logging.INFO):
             self.logger.info(
@@ -57,7 +90,9 @@ class DistanceCalculator:
 
         # Create progress bar for sample comparisons
         sample_range: Iterable[int] = range(num_samples - 1)
-        if self.show_progress and num_samples > 10 and log:  # Only show for larger datasets
+        if (
+            self.show_progress and num_samples > 10 and log
+        ):  # Only show for larger datasets
             sample_range = tqdm(
                 sample_range,
                 desc="Computing pairwise distances",
@@ -91,7 +126,25 @@ class DistanceCalculator:
     def calc_distance_for_snp_ids(
         self, snp_ids: List[str], snp_data: SNPDataMapping, *, log: bool = True
     ) -> float:
-        """Helper computing minimal distance for a list of SNP IDs."""
+        """Helper computing minimal distance for a list of SNP IDs.
+
+        Args:
+            snp_ids: List of SNP identifiers to include in distance calculation
+            snp_data: Mapping from SNP ID to SNPData
+            log: Whether to log distance calculation details
+
+        Returns:
+            Minimum Hamming distance between any pair of samples
+
+        Example:
+            >>> calc = DistanceCalculator(memory_monitor, logger)
+            >>> selected_snps = ["rs123", "rs456", "rs789"]
+            >>> min_distance = calc.calc_distance_for_snp_ids(
+            ...     selected_snps, vcf_data.snp_genotypes
+            ... )
+            >>> print(f"Minimum distance with selected SNPs: {min_distance}")
+            Minimum distance with selected SNPs: 3.0
+        """
         if not snp_ids:
             return 0.0
         genos = [snp_data[sid].genotypes for sid in snp_ids]

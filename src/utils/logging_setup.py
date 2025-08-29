@@ -9,9 +9,42 @@ __all__ = ["JsonFormatter", "setup_logger"]
 
 
 class JsonFormatter(logging.Formatter):
-    """Custom JSON formatter for structured logging."""
+    """Custom JSON formatter for structured logging.
+
+    Formats log records as JSON with timestamp, level, and message.
+
+    Example:
+        >>> formatter = JsonFormatter()
+        >>> record = logging.LogRecord(
+        ...     name="test", level=logging.INFO, pathname="", lineno=0,
+        ...     msg="Test message", args=(), exc_info=None
+        ... )
+        >>> record.created = time.time()
+        >>> json_output = formatter.format(record)
+        >>> print(json_output)
+        {"level": "INFO", "message": "Test message", "time": "2024-01-01T12:00:00Z"}
+    """
 
     def format(self, record: logging.LogRecord) -> str:
+        """Format log record as JSON string.
+
+        Args:
+            record: LogRecord to format
+
+        Returns:
+            JSON-formatted log string
+
+        Example:
+            >>> formatter = JsonFormatter()
+            >>> record = logging.LogRecord(
+            ...     name="test", level=logging.WARNING, pathname="", lineno=0,
+            ...     msg="Warning message", args=(), exc_info=None
+            ... )
+            >>> record.created = time.time()
+            >>> json_output = formatter.format(record)
+            >>> print(json_output)
+            {"level": "WARNING", "message": "Warning message", "time": "2024-01-01T12:00:00Z"}
+        """
         payload = {
             "level": record.levelname,
             "message": record.getMessage(),
@@ -36,6 +69,23 @@ def setup_logger(
 
     Returns:
         Configured logger instance
+
+    Example:
+        >>> # Create text logger with INFO level
+        >>> logger = setup_logger("my_app", level="INFO", format_type="text")
+        >>> logger.info("Application started")
+        [INFO] Application started
+
+        >>> # Create JSON logger with DEBUG level
+        >>> json_logger = setup_logger("api", level="DEBUG", format_type="json")
+        >>> json_logger.debug("API request received")
+        {"level": "DEBUG", "message": "API request received", "time": "2024-01-01T12:00:00Z"}
+
+        >>> # Create quiet logger (WARNING level)
+        >>> quiet_logger = setup_logger("background", verbose=False)
+        >>> quiet_logger.info("This won't be logged")
+        >>> quiet_logger.warning("This will be logged")
+        [WARNING] This will be logged
     """
     logger = logging.getLogger(name)
 

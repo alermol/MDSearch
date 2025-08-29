@@ -12,7 +12,18 @@ __all__ = ["WriteConfig", "VCFWriter"]
 
 @dataclass
 class WriteConfig:
-    """Configuration for VCF writing."""
+    """Configuration for VCF writing.
+
+    Attributes:
+        ploidy: Ploidy level (e.g., 2 for diploid)
+        convert_het: Whether to convert heterozygous calls to missing
+        output_format: Output format identifier (v, z, u, b)
+
+    Example:
+        >>> config = WriteConfig(ploidy=2, convert_het=True, output_format="z")
+        >>> print(f"Output: {config.output_format}, Convert het: {config.convert_het}")
+        Output: z, Convert het: True
+    """
 
     ploidy: int
     convert_het: bool
@@ -32,8 +43,26 @@ class VCFWriter:
         """Write each SNP set to output files.
 
         - Uses pysam VariantFile for all formats (vcf, vcf.gz, bcf).
-        """
 
+        Args:
+            input_vcf: Path to input VCF file
+            output_prefix: Prefix for output file names
+            snp_sets: List of SNP sets, each containing SNP IDs
+            config: Write configuration specifying format and options
+
+        Example:
+            >>> from pathlib import Path
+            >>> from src.io.vcf_writer import VCFWriter, WriteConfig
+            >>>
+            >>> writer = VCFWriter()
+            >>> config = WriteConfig(ploidy=2, convert_het=False, output_format="v")
+            >>> snp_sets = [["rs1", "rs2"], ["rs3", "rs4"]]
+            >>>
+            >>> writer.write_snp_sets(
+            ...     Path("input.vcf"), Path("output"), snp_sets, config
+            ... )
+            >>> # Creates output_1.vcf and output_2.vcf
+        """
         # Map bcftools letters to pysam modes
         mode_map = {"v": "w", "z": "wz", "u": "wb0", "b": "wb"}
         if config.output_format not in mode_map:
@@ -100,10 +129,15 @@ class VCFWriter:
                                     gt_tuple = data.get("GT")
                                     phased = getattr(data, "phased", False)
                                     sep = "|" if phased else "/"
-                                    if gt_tuple is None or all(g is None for g in gt_tuple):
+                                    if gt_tuple is None or all(
+                                        g is None for g in gt_tuple
+                                    ):
                                         gt_s = sep.join(["."] * max(1, config.ploidy))
                                     else:
-                                        parts = ["." if g is None else str(g) for g in gt_tuple]
+                                        parts = [
+                                            "." if g is None else str(g)
+                                            for g in gt_tuple
+                                        ]
                                         gt_s = sep.join(parts)
                                     if config.convert_het and is_het(gt_s):
                                         gt_s = sep.join(["."] * max(1, config.ploidy))
@@ -143,7 +177,16 @@ class VCFWriter:
     def _convert_het_in_record(
         self, rec: pysam.VariantRecord, config: WriteConfig
     ) -> None:
-        """Convert heterozygous GTs to missing for a record in-place."""
+        """Convert heterozygous GTs to missing for a record in-place.
+
+        Args:
+            rec: pysam VariantRecord to modify
+            config: Write configuration specifying ploidy
+
+        Example:
+            >>> # This method is called internally by write_snp_sets
+            >>> # when convert_het=True in the config
+        """
         # Compose missing GT according to ploidy
         if config.ploidy and config.ploidy > 1:
             missing_tuple = tuple([None] * config.ploidy)
@@ -171,7 +214,17 @@ class VCFWriter:
     def _write_line_with_het_conversion(
         self, line: List[str], outfh: Any, config: WriteConfig
     ) -> None:
-        """Write VCF line with heterozygous calls converted to missing (text path)."""
+        """Write VCF line with heterozygous calls converted to missing (text path).
+
+        Args:
+            line: VCF line parts as list of strings
+            outfh: Output file handle
+            config: Write configuration specifying ploidy
+
+        Example:
+            >>> # This method is called internally by write_snp_sets
+            >>> # when processing text VCF files with convert_het=True
+        """
         format_field = line[8] if len(line) > 8 else "GT"
         keys = format_field.split(":") if format_field else []
         gt_index = keys.index("GT") if "GT" in keys else -1

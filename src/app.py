@@ -16,7 +16,41 @@ __all__ = ["MDSearchConfig", "MDSearchApp"]
 
 @dataclass
 class MDSearchConfig:
-    """Configuration for MDSearch application."""
+    """Configuration for MDSearch application.
+
+    Attributes:
+        input_vcf: Path to input VCF file
+        output_prefix: Prefix for output file names
+        ploidy: Ploidy level (e.g., 2 for diploid)
+        max_snps: Maximum SNPs per set (0 = keep minimal)
+        min_distance: Minimum Hamming distance required
+        convert_het: Whether to convert heterozygous calls to missing
+        n_sets: Number of alternative SNP sets to generate
+        overlap_constraints: Constraints on overlap between alternative sets
+        verbose: Whether to enable verbose logging
+        log_level: Logging level override
+        log_format: Logging format (text or json)
+        summary_tsv: Optional path for summary TSV file
+        lazy_loading: Whether to use lazy loading for large files
+        cache_size: Number of SNPs to keep in memory cache
+        input_format: Input format identifier (auto, v, z, u, b)
+        output_format: Output format identifier (v, z, u, b)
+
+    Example:
+        >>> from pathlib import Path
+        >>> from src.core.snp_selector import OverlapConstraints
+        >>>
+        >>> config = MDSearchConfig(
+        ...     input_vcf=Path("sample.vcf"),
+        ...     output_prefix=Path("output"),
+        ...     ploidy=2,
+        ...     min_distance=3,
+        ...     n_sets=2,
+        ...     lazy_loading=True
+        ... )
+        >>> print(f"Input: {config.input_vcf}, Ploidy: {config.ploidy}")
+        Input: sample.vcf, Ploidy: 2
+    """
 
     input_vcf: Path
     output_prefix: Path
@@ -40,6 +74,25 @@ class MDSearchApp:
     """Main application coordinator with separated concerns."""
 
     def __init__(self, config: MDSearchConfig):
+        """Initialize MDSearch application with configuration.
+
+        Args:
+            config: Application configuration
+
+        Example:
+            >>> from src.app import MDSearchApp, MDSearchConfig
+            >>> from pathlib import Path
+            >>>
+            >>> config = MDSearchConfig(
+            ...     input_vcf=Path("input.vcf"),
+            ...     output_prefix=Path("output"),
+            ...     ploidy=2,
+            ...     min_distance=3
+            ... )
+            >>> app = MDSearchApp(config)
+            >>> print(f"Initialized with {config.ploidy}-ploidy analysis")
+            Initialized with 2-ploidy analysis
+        """
         self.config = config
         self.logger = setup_logger(
             "mdsearch", config.log_level, config.log_format, config.verbose
@@ -59,7 +112,20 @@ class MDSearchApp:
         self.memory_monitor.check_memory_and_warn("initialization")
 
     def run(self) -> None:
-        """Execute the complete MDSearch pipeline."""
+        """Execute the complete MDSearch pipeline.
+
+        This method orchestrates the entire workflow:
+        1. Index verification for compressed inputs
+        2. VCF parsing and validation
+        3. SNP set selection and optimization
+        4. Output file generation
+        5. Summary statistics (if requested)
+
+        Example:
+            >>> app = MDSearchApp(config)
+            >>> app.run()
+            >>> # Will process VCF, select SNPs, and generate output files
+        """
         # 1. Ensure index exists for compressed inputs (VCF.gz/BCF)
         try:
             ensure_variant_index(

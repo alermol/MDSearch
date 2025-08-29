@@ -14,6 +14,23 @@ def infer_format_letter(path: Path) -> str:
     """Infer bcftools-style format letter from filename.
 
     Returns one of: v (VCF), z (VCF.gz), u/b (BCF). Defaults to 'v'.
+
+    Args:
+        path: Path to variant file
+
+    Returns:
+        Single character format identifier
+
+    Example:
+        >>> from pathlib import Path
+        >>> infer_format_letter(Path("sample.vcf"))
+        'v'
+        >>> infer_format_letter(Path("sample.vcf.gz"))
+        'z'
+        >>> infer_format_letter(Path("sample.bcf"))
+        'b'
+        >>> infer_format_letter(Path("unknown.txt"))
+        'v'
     """
     name = str(path)
     if name.endswith(".vcf.gz") or name.endswith(".vcfz"):
@@ -42,10 +59,30 @@ def ensure_variant_index(
 ) -> None:
     """Ensure an index exists for the given variant file.
 
-    - For 'z' (VCF.gz): ensure .tbi or .csi exists; create with tabix if missing
-    - For 'b'/'u' (BCF): ensure .csi exists; create with pysam.index if missing
+    - For 'z' (VCF.gz): ensure .csi exists; create CSI index with bcftools if missing
+    - For 'b'/'u' (BCF): ensure .csi exists; create with bcftools if missing
     - For 'v' (VCF): no index is created; log and return
     - For 'auto': infer from extension
+
+    Args:
+        vpath: Path to variant file
+        fmt_letter: Format identifier (v, z, u, b, or auto)
+        logger: Optional logger for output
+
+    Raises:
+        RuntimeError: If index creation fails
+
+    Example:
+        >>> from pathlib import Path
+        >>> from src.utils.logging_setup import setup_logger
+        >>> logger = setup_logger("indexing")
+        >>> vcf_path = Path("sample.vcf.gz")
+        >>> ensure_variant_index(vcf_path, "z", logger)
+        >>> # Will create .csi index if missing
+
+        >>> # Auto-detect format
+        >>> ensure_variant_index(vcf_path, "auto", logger)
+        >>> # Will infer format and create appropriate index
     """
     fmt = fmt_letter or "auto"
     if fmt == "auto":
@@ -73,14 +110,31 @@ def ensure_variant_index(
 
 
 def _run_bcftools_index(vpath: Path, logger: Optional[logging.Logger]) -> None:
-    """Run bcftools index --csi on the given file, raising on failure."""
+    """Run bcftools index --csi on the given file, raising on failure.
+
+    Args:
+        vpath: Path to variant file to index
+        logger: Optional logger for output
+
+    Raises:
+        RuntimeError: If bcftools is not found or indexing fails
+
+    Example:
+        >>> from pathlib import Path
+        >>> _run_bcftools_index(Path("sample.vcf.gz"), logger)
+        >>> # Will create sample.vcf.gz.csi index file
+    """
     cmd = ["bcftools", "index", "--csi", "-f", str(vpath)]
     try:
-        res = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        res = subprocess.run(
+            cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
         if logger and logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"bcftools index stdout: {res.stdout.strip()}")
     except FileNotFoundError:
-        msg = "bcftools not found in PATH; please install bcftools to enable CSI indexing"
+        msg = (
+            "bcftools not found in PATH; please install bcftools to enable CSI indexing"
+        )
         if logger:
             logger.error(msg)
         raise RuntimeError(msg)
@@ -88,5 +142,3 @@ def _run_bcftools_index(vpath: Path, logger: Optional[logging.Logger]) -> None:
         if logger:
             logger.error(f"bcftools index failed: {e.stderr.strip()}")
         raise RuntimeError(f"bcftools index failed with code {e.returncode}")
-
-
