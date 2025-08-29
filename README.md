@@ -70,7 +70,8 @@ python mdsearch.py input.vcf output_prefix
 usage: mdsearch.py [-h] [-pl PLOIDY] [-ts TOTAL_SNP] [-md MIN_DIST] [-ch] [-ns N_SETS]
                    [-oMx OVERLAP_MAX_N] [-oMf OVERLAP_MAX_FRAC] [--quiet]
                    [--log-level {DEBUG,INFO,WARNING,ERROR}] [--log-format {text,json}]
-                   [--summary-tsv SUMMARY_TSV]
+                   [--summary-tsv SUMMARY_TSV] [--lazy-loading] [--cache-size CACHE_SIZE]
+                   [--input-format {auto,v,z,u,b}] [--output-format {v,z,u,b}]
                    IVCF OVCF_PREFIX
 
 positional arguments:
@@ -84,15 +85,25 @@ options:
   -md MIN_DIST          Minimal Hamming distance between samples (default: 1)
   -ch                   Convert heterozygous calls into NA (default: False)
   -ns N_SETS            Number of distinct SNP sets in output (default: 1)
-  -oMx OVERLAP_MAX_N    Maximum overlap count for alternative sets (-1 = unlimited)
-  -oMf OVERLAP_MAX_FRAC Maximum overlap fraction for alternative sets (-1 = unlimited)
+  -oMx OVERLAP_MAX_N    Maximum overlap count allowed with the base minimal set for
+                        alternative sets (-1 = unlimited; default: -1)
+  -oMf OVERLAP_MAX_FRAC Maximum overlap fraction allowed with the base minimal set for
+                        alternative sets (-1 = unlimited; default: -1.0)
   --quiet               Suppress progress output (default: False)
   --log-level {DEBUG,INFO,WARNING,ERROR}
-                        Logging level (default depends on --quiet)
+                        Logging level (DEBUG, INFO, WARNING, ERROR); default depends on --quiet
   --log-format {text,json}
                         Logging format: text or json (default: text)
   --summary-tsv SUMMARY_TSV
-                        Write per-set summary TSV to specified path
+                        Write per-set summary TSV to this path (columns: set_index, output_vcf,
+                        num_snps, min_distance, snp_ids)
+  --lazy-loading        Use lazy loading for large VCF files to reduce memory usage
+  --cache-size CACHE_SIZE
+                        Number of SNPs to keep in memory cache when using lazy loading (default: 1000)
+  --input-format {auto,v,z,u,b}
+                        Input format: auto (default), v (VCF), z (VCF.gz), u (uncompressed BCF), b (compressed BCF)
+  --output-format {v,z,u,b}
+                        Output format: v (VCF), z (VCF.gz), u (uncompressed BCF), b (compressed BCF)
 ```
 
 ### Examples
@@ -110,6 +121,16 @@ python mdsearch.py data.vcf results -md 2 -ns 3 -oMx 1 --log-level INFO --summar
 #### JSON Logging for Automated Pipelines
 ```bash
 python mdsearch.py data.vcf results --log-format json --quiet --summary-tsv results.tsv
+```
+
+#### Memory-Optimized for Large Files
+```bash
+python mdsearch.py large_data.vcf results --lazy-loading --cache-size 5000 --output-format z
+```
+
+#### BCF Format Processing
+```bash
+python mdsearch.py input.bcf results --input-format b --output-format b
 ```
 
 The first command will:
@@ -151,6 +172,12 @@ Only `results_1.vcf` will be generated with `-ns 1` option.
   - `--quiet` suppresses progress output
   - `--log-level` controls verbosity (DEBUG, INFO, WARNING, ERROR)
   - `--log-format json` outputs structured logs for automated pipelines
+- **Memory optimization:**
+  - `--lazy-loading` processes large VCF files in chunks to reduce memory usage
+  - `--cache-size` controls how many SNPs to keep in memory (default: 1000)
+- **File format support:**
+  - Input formats: auto-detection, VCF (v), compressed VCF (z), uncompressed BCF (u), compressed BCF (b)
+  - Output formats: VCF (v), compressed VCF (z), uncompressed BCF (u), compressed BCF (b)
 - The script `generate_snp_passport.py` in the `scripts` folder will generate a human-readable passport in the following format:
   > sample_name: Chr:Coordinate(SNP_genotype); Chr:Coordinate(SNP_genotype); Chr:Coordinate(SNP_genotype)
 
