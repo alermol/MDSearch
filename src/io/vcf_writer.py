@@ -223,7 +223,7 @@ class VCFWriter:
         Args:
             line: VCF line parts as list of strings
             outfh: Output file handle
-            config: Write configuration specifying ploidy
+            config: Write configuration specifying format and options
 
         Example:
             >>> # This method is called internally by write_snp_sets
@@ -264,3 +264,109 @@ class VCFWriter:
 
         line = line[:9] + new_samples
         outfh.write("\t".join(line) + "\n")
+
+    def copy_snp_set_to_best_set(
+        self,
+        input_vcf: Path,
+        output_prefix: Path,
+        snp_set: List[str],
+        config: WriteConfig,
+    ) -> None:
+        """Copy a specific SNP set to best_set.vcf in the output directory.
+
+        Args:
+            input_vcf: Path to input VCF file
+            output_prefix: Path to output folder (will be created if absent)
+            snp_set: List of SNP IDs to include in the best set
+            config: Write configuration specifying format and options
+
+        Example:
+            >>> from pathlib import Path
+            >>> from src.io.vcf_writer import VCFWriter, WriteConfig
+            >>>
+            >>> writer = VCFWriter()
+            >>> config = WriteConfig(ploidy=2, convert_het=False, output_format="v")
+            >>> snp_set = ["rs1", "rs2", "rs3"]
+            >>>
+            >>> writer.copy_snp_set_to_best_set(
+            ...     Path("input.vcf"), Path("output"), snp_set, config
+            ... )
+            >>> # Creates output/best_set.vcf with the specified SNPs
+        """
+        # Create output directory if it doesn't exist
+        output_prefix.mkdir(parents=True, exist_ok=True)
+
+        # Map bcftools letters to pysam modes
+        mode_map = {"v": "w", "z": "wz", "u": "wb0", "b": "wb"}
+        if config.output_format not in mode_map:
+            raise ValueError(f"Unsupported output_format: {config.output_format}")
+        out_mode: Any = mode_map[config.output_format]
+
+        with pysam.VariantFile(str(input_vcf)) as invcf:
+            # Gather contigs used by this set
+            contigs_needed = set()
+            for rec in invcf.fetch():
+                if rec.id and rec.id in snp_set:
+                    contigs_needed.add(rec.chrom)
+
+            # Prepare header: copy and add missing contigs and GT format
+            header = invcf.header.copy()
+            for chrom in sorted(contigs_needed):
+                if chrom not in header.contigs:
+                    header.contigs.add(chrom)
+            if "GT" not in header.formats:
+                header.formats.add("GT", 1, "String", "Genotype")
+
+            # Output file name based on format
+            if config.output_format == "v":
+                output_file = output_prefix / "best_set.vcf"
+                # Text VCF path: preserve original FORMAT and sample subfields when input is text.
+                if str(input_vcf).endswith(".vcf"):
+                    with open(input_vcf) as infh, open(output_file, "w") as outfh:
+                        for vcf_line in infh:
+                            if vcf_line.startswith("#"):
+                                outfh.write(vcf_line)
+                            else:
+                                parts = vcf_line.strip().split("\t")
+                                if len(parts) > 2 and parts[2] in snp_set:
+                                    if config.convert_het:
+                                        self._write_line_with_het_conversion(
+                                            parts, outfh, config
+                                        )
+                                    else:
+                                        outfh.write(vcf_line)
+                else:
+                    # Compressed input: use pysam for parsing, text for output
+                    with open(output_file, "w") as outfh:
+                        # Write header lines
+                        for line in str(header).split("\n"):
+                            if line.strip():
+                                outfh.write(line + "\n")
+
+                        # Write variant records
+                        for rec in invcf.fetch():
+                            if not rec.id or rec.id not in snp_set:
+                                continue
+                            if config.convert_het:
+                                self._convert_het_in_record(rec, config)
+                            outfh.write(str(rec))
+            else:
+                # Compressed output formats
+                if config.output_format == "z":
+                    output_file = output_prefix / "best_set.vcf.gz"
+                elif config.output_format == "u":
+                    output_file = output_prefix / "best_set.vcf.bz2"
+                elif config.output_format == "b":
+                    output_file = output_prefix / "best_set.bcf"
+                else:
+                    output_file = output_prefix / "best_set.bcf"
+
+                with pysam.VariantFile(
+                    str(output_file), out_mode, header=header
+                ) as outvcf:
+                    for rec in invcf.fetch():
+                        if not rec.id or rec.id not in snp_set:
+                            continue
+                        if config.convert_het:
+                            self._convert_het_in_record(rec, config)
+                        outvcf.write(rec)

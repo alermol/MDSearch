@@ -1,7 +1,7 @@
 """TSV summary file output operations."""
 
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 from dataclasses import dataclass
 
 from ..core.distance_calculator import DistanceCalculator
@@ -58,6 +58,65 @@ class SummaryWriter:
             >>> writer = SummaryWriter(distance_calc)
         """
         self.distance_calc = distance_calc
+
+    def find_best_snp_set(
+        self,
+        snp_sets: List[List[str]],
+        vcf_data: VCFData,
+    ) -> Tuple[int, List[str], float]:
+        """Find the best SNP set based on Shannon entropy.
+
+        The best set is determined by the highest Shannon entropy value,
+        which indicates the most balanced distribution of SNPs across chromosomes.
+
+        Args:
+            snp_sets: List of SNP sets, each containing SNP IDs
+            vcf_data: VCF data containing SNP information
+
+        Returns:
+            Tuple of (best_set_index, best_snp_set, best_entropy)
+            - best_set_index: 1-based index of the best set
+            - best_snp_set: List of SNP IDs in the best set
+            - best_entropy: Shannon entropy value of the best set
+
+        Example:
+            >>> from src.io.summary_writer import SummaryWriter
+            >>> writer = SummaryWriter(distance_calc)
+            >>> snp_sets = [["rs1", "rs2"], ["rs3", "rs4"]]
+            >>> best_idx, best_set, best_entropy = writer.find_best_snp_set(snp_sets, vcf_data)
+            >>> print(f"Best set: {best_idx}, Entropy: {best_entropy:.3f}")
+            Best set: 2, Entropy: 1.585
+        """
+        if not snp_sets:
+            raise ValueError("No SNP sets provided")
+
+        best_set_index = 1
+        best_snp_set = snp_sets[0]
+        best_entropy = 0.0
+
+        for si, s in enumerate(snp_sets, start=1):
+            # Calculate Shannon entropy for chromosome distribution
+            chromosome_counts: Counter[str] = Counter()
+
+            # Count SNPs per chromosome in the current set
+            for snp_id in s:
+                if snp_id in vcf_data.snp_genotypes:
+                    chromosome_counts[vcf_data.snp_genotypes[snp_id].chromosome] += 1
+
+            # Add all chromosomes from VCF with 0 count if not present
+            for chrom in vcf_data.headers.contigs:
+                if chrom not in chromosome_counts:
+                    chromosome_counts[chrom] = 0
+
+            current_entropy = calculate_shannon_entropy(chromosome_counts)
+
+            # Update best set if current entropy is higher
+            if current_entropy > best_entropy:
+                best_entropy = current_entropy
+                best_snp_set = s
+                best_set_index = si
+
+        return best_set_index, best_snp_set, best_entropy
 
     def write_summary(
         self,

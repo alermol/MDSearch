@@ -160,6 +160,30 @@ class MDSearchApp:
         if self.logger.isEnabledFor(logging.INFO):
             self.logger.info(f"Summary TSV written: {summary_path}")
 
+        # 7. Find best SNP set based on Shannon entropy and copy to best_set.vcf
+        if snp_sets:
+            best_set_index, best_snp_set, best_entropy = (
+                self.summary_writer.find_best_snp_set(snp_sets, vcf_data)
+            )
+
+            if self.logger.isEnabledFor(logging.INFO):
+                self.logger.info(
+                    f"Best SNP set identified: set #{best_set_index} "
+                    f"with Shannon entropy {best_entropy:.3f}"
+                )
+
+            # Copy best set to best_set.vcf
+            self.vcf_writer.copy_snp_set_to_best_set(
+                self.config.input_vcf,
+                self.config.output_prefix,
+                best_snp_set,
+                write_config,
+            )
+
+            if self.logger.isEnabledFor(logging.INFO):
+                best_set_path = self.config.output_prefix / "best_set.vcf"
+                self.logger.info(f"Best SNP set copied to: {best_set_path}")
+
         # Final memory usage summary and cache statistics
         self.memory_monitor.check_memory_and_warn("processing complete")
         if self.logger.isEnabledFor(logging.INFO):
