@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 from dataclasses import dataclass
 
 from .core import VCFParser, DistanceCalculator, SNPSelector
@@ -23,7 +23,7 @@ class MDSearchConfig:
         ploidy: Ploidy level (e.g., 2 for diploid)
         min_distance: Minimum Hamming distance required
         convert_het: Whether to convert heterozygous calls to missing
-        n_sets: Number of alternative SNP sets to generate
+        n_sets: Number of alternative SNP sets to generate (0 for unlimited)
         verbose: Whether to enable verbose logging
         log_level: Logging level override
         log_format: Logging format (text or json)
@@ -49,7 +49,7 @@ class MDSearchConfig:
     ploidy: int = 2
     min_distance: int = 1
     convert_het: bool = False
-    n_sets: int = 1
+    n_sets: Union[int, str] = 1
     verbose: bool = True
     log_level: Optional[str] = None
     log_format: str = "text"

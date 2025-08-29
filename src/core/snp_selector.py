@@ -1,8 +1,7 @@
 """SNP selection and optimization algorithms."""
 
-import sys
 import logging
-from typing import List, Set, Optional
+from typing import List, Set, Optional, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -255,36 +254,52 @@ class SNPSelector:
         self,
         vcf_data: VCFData,
         min_distance: int,
-        n_sets: int,
+        n_sets: Union[int, str],
     ) -> List[List[str]]:
         """Find all perfectly orthogonal (disjoint) minimal discriminating SNP sets.
 
         This implementation enumerates disjoint minimal sets across the entire VCF.
-        The n_sets parameter is ignored: all disjoint sets found are returned.
+        When n_sets is 0 (unlimited mode), it finds all possible disjoint sets.
+        When n_sets > 0, it finds up to that many sets.
         """
+        # Convert n_sets to int for internal use
+        n_sets_int = int(n_sets) if isinstance(n_sets, str) else n_sets
+
         if self.logger.isEnabledFor(logging.INFO):
-            self.logger.info("Searching for disjoint minimal SNP sets...")
+            if n_sets_int == 0:
+                self.logger.info(
+                    "Searching for all possible disjoint minimal SNP sets (unlimited mode)..."
+                )
+            else:
+                self.logger.info(
+                    f"Searching for up to {n_sets_int} disjoint minimal SNP sets..."
+                )
 
         # Enumerate orthogonal sets using global exclusions to enforce disjointness
         disjoint_sets: List[List[str]] = []
         excluded_global: Set[str] = set()
 
         alt_index = 0
-        while n_sets > len(disjoint_sets):
+
+        # Continue searching until either we reach n_sets (if specified) or no more sets can be found
+        while n_sets_int == 0 or n_sets_int > len(disjoint_sets):
+            # Report available SNPs for this set generation
+            available_snps = len(vcf_data.snp_genotypes) - len(excluded_global)
+            if self.logger.isEnabledFor(logging.INFO):
+                self.logger.info(
+                    f"Attempting to build discriminatory set #{alt_index + 1} "
+                    f"(SNPs available: {available_snps})"
+                )
             try:
-                if self.logger.isEnabledFor(logging.INFO):
-                    self.logger.info(
-                        f"Attempting to build discriminatory set #{alt_index + 1}"
-                    )
                 selected_set = self.build_discriminatory_set(
                     vcf_data,
                     min_distance,
                     excluded=set(excluded_global),
                 )
             except BuildError:
-                sys.exit(
-                    f"Not enough polymorphic SNP to select #{alt_index + 1} discriminatory set. Exit."
-                )
+                if self.logger.isEnabledFor(logging.INFO):
+                    self.logger.info("No more disjoint SNP sets can be found")
+                break
             selected_set_minimal = self.deterministic_eliminate(
                 selected_set, vcf_data, min_distance, log_start=False
             )
@@ -299,20 +314,29 @@ class SNPSelector:
                 disjoint_sets.append(sorted(selected_set_minimal))
                 excluded_global.update(selected_set_minimal)
                 alt_index += 1
+                remaining_snps = len(vcf_data.snp_genotypes) - len(excluded_global)
                 if self.logger.isEnabledFor(logging.INFO):
                     self.logger.info(
-                        f"Added alternative set #{alt_index} with {len(selected_set_minimal)} SNP(s)"
+                        f"Added alternative set #{alt_index} with {len(selected_set_minimal)} SNP(s) "
+                        f"(SNPs remaining: {remaining_snps})"
                     )
             else:
                 excluded_global.update(selected_set_minimal)
+                remaining_snps = len(vcf_data.snp_genotypes) - len(excluded_global)
                 if self.logger.isEnabledFor(logging.INFO):
                     self.logger.info(
-                        "Candidate alternative set overlapped with existing; skipping"
+                        f"Candidate alternative set overlapped with existing; skipping "
+                        f"(SNPs remaining: {remaining_snps})"
                     )
                 continue
 
         if self.logger.isEnabledFor(logging.INFO):
-            self.logger.info(
-                f"{len(disjoint_sets)} orthogonal discriminating SNP set(s) selected."
-            )
+            if n_sets_int == 0:
+                self.logger.info(
+                    f"Found {len(disjoint_sets)} orthogonal discriminating SNP set(s) in unlimited mode."
+                )
+            else:
+                self.logger.info(
+                    f"{len(disjoint_sets)} orthogonal discriminating SNP set(s) selected."
+                )
         return disjoint_sets

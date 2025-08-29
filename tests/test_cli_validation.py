@@ -4,7 +4,7 @@ import pytest
 import sys
 import json
 
-from .helpers import write_vcf
+from .helpers import write_vcf, get_mdss_vcf_path
 
 
 def _run_raw(args: list[str]) -> None:
@@ -71,8 +71,12 @@ def test_zero_sets_errors(tmp_path: Path):
     ivcf = _make_minimal_vcf(tmp_path)
     out_prefix = tmp_path / "out_cli_ns0"
 
-    with pytest.raises(subprocess.CalledProcessError):
-        _run(ivcf, out_prefix, ploidy=2, min_dist=1, n_sets=0)
+    # With unlimited mode, -ns 0 is now valid
+    _run(ivcf, out_prefix, ploidy=2, min_dist=1, n_sets=0)
+
+    # Verify that it actually ran in unlimited mode
+    produced1 = get_mdss_vcf_path(out_prefix, 1)
+    assert produced1.exists(), "First set should exist in unlimited mode"
 
 
 def test_quiet_flag_runs(tmp_path: Path):

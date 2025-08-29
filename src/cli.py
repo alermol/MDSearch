@@ -126,9 +126,9 @@ def create_parser() -> argparse.ArgumentParser:
         "-ns",
         "--num-sets",
         dest="ns",
-        help="Number of distinct SNP sets in output",
-        default=1,
-        type=int,
+        help="Number of distinct SNP sets in output (0 or 'unlimited' for all possible sets)",
+        default="0",
+        type=str,
         metavar="N_SETS",
     )
 
@@ -230,7 +230,7 @@ def main() -> None:
         ploidy=args.pl,
         min_distance=args.md,
         convert_het=args.ch,
-        n_sets=args.ns,
+        n_sets=args.ns,  # args.ns is already converted to int by validation
         verbose=not args.quiet,
         log_level=args.log_level,
         log_format=args.log_format,
