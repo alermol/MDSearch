@@ -155,14 +155,18 @@ def assert_discriminative(
     ), f"Min Hamming distance {observed} < required {min_dist}"
 
 
+def get_mdss_vcf_path(out_prefix: Path, set_number: int) -> Path:
+    """Get the path to a VCF file in the mdss subdirectory."""
+    return out_prefix / "mdss" / f"minimal_set_{set_number}.vcf"
+
+
 def save_out_prefix_vcfs(out_prefix: Path, subdir: str = ""):
-    """Copy mdsearch outputs like <prefix>_1.vcf, <prefix>_2.vcf and summary.tsv into saved_vcfs/ if enabled."""
+    """Copy mdsearch outputs like <prefix>/mdss/minimal_set_1.vcf, <prefix>/mdss/minimal_set_2.vcf and summary.tsv into saved_vcfs/ if enabled."""
     if not _artifacts_enabled():
         return
     out_prefix = Path(out_prefix)
-    out_dir = out_prefix.parent
-    stem = out_prefix.name
-    for f in out_dir.glob(f"{stem}_*.vcf"):
+    mdss_dir = out_prefix / "mdss"
+    for f in mdss_dir.glob("minimal_set_*.vcf"):
         save_artifact(f, subdir=subdir)
-    for f in out_dir.glob("summary.tsv"):
+    for f in out_prefix.glob("summary.tsv"):
         save_artifact(f, subdir=subdir)

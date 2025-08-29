@@ -43,10 +43,11 @@ class VCFWriter:
         """Write each SNP set to output files.
 
         - Uses pysam VariantFile for all formats (vcf, vcf.gz, bcf).
+        - Creates output folder structure with 'mdss' subdirectory.
 
         Args:
             input_vcf: Path to input VCF file
-            output_prefix: Prefix for output file names
+            output_prefix: Path to output folder (will be created if absent)
             snp_sets: List of SNP sets, each containing SNP IDs
             config: Write configuration specifying format and options
 
@@ -61,8 +62,11 @@ class VCFWriter:
             >>> writer.write_snp_sets(
             ...     Path("input.vcf"), Path("output"), snp_sets, config
             ... )
-            >>> # Creates output_1.vcf and output_2.vcf
+            >>> # Creates output/mdss/output_1.vcf and output/mdss/output_2.vcf
         """
+        # Create output directory structure
+        mdss_dir = output_prefix / "mdss"
+        mdss_dir.mkdir(parents=True, exist_ok=True)
         # Map bcftools letters to pysam modes
         mode_map = {"v": "w", "z": "wz", "u": "wb0", "b": "wb"}
         if config.output_format not in mode_map:
@@ -87,7 +91,7 @@ class VCFWriter:
 
                 # Output file name based on format
                 if config.output_format == "v":
-                    output_file = f"{output_prefix}_{si}.vcf"
+                    output_file = mdss_dir / f"minimal_set_{si}.vcf"
                     # Text VCF path: preserve original FORMAT and sample subfields when input is text.
                     if str(input_vcf).endswith(".vcf"):
                         with open(input_vcf) as infh, open(output_file, "w") as outfh:
@@ -159,13 +163,13 @@ class VCFWriter:
                                 outfh.write(line + "\n")
                 else:
                     if config.output_format == "z":
-                        output_file = f"{output_prefix}_{si}.vcf.gz"
+                        output_file = mdss_dir / f"minimal_set_{si}.vcf.gz"
                     elif config.output_format == "u":
-                        output_file = f"{output_prefix}_{si}.bcf"
+                        output_file = mdss_dir / f"minimal_set_{si}.bcf"
                     else:
-                        output_file = f"{output_prefix}_{si}.bcf"
+                        output_file = mdss_dir / f"minimal_set_{si}.bcf"
                     with pysam.VariantFile(
-                        output_file, out_mode, header=header
+                        str(output_file), out_mode, header=header
                     ) as outvcf:
                         for rec in invcf.fetch():
                             if not rec.id or rec.id not in s:

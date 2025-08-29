@@ -3,11 +3,9 @@
 import argparse
 from pathlib import Path
 import subprocess
-from datetime import datetime, timezone
 import platform
 
 from .app import MDSearchApp, MDSearchConfig
-from .core.snp_selector import OverlapConstraints
 from .utils.validation import validate_cli_arguments
 from . import __version__
 
@@ -79,14 +77,16 @@ def create_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    # Version flag
+    # Version flag (Misc)
     parser.add_argument(
+        "-V",
         "--version",
         action="version",
         version=_build_version_string(),
-        help="Show program's version number and build info and exit",
+        help="Show program version, commit hash, and Python version, then exit",
     )
 
+    # Positional (required) arguments
     parser.add_argument(
         "ivcf",
         help="Input VCF file (bi-allelic, with SNP IDs)",
@@ -94,109 +94,59 @@ def create_parser() -> argparse.ArgumentParser:
         metavar="IVCF",
     )
     parser.add_argument(
-        "ovcf_prefix",
-        help="Prefix for output VCF(s)",
+        "outdir",
+        help="Path to output folder (will be created if absent); VCF files will be placed in 'mdss' subdirectory",
         type=parser_resolve_path,
-        metavar="OVCF_PREFIX",
+        metavar="OUTPUT_FOLDER",
     )
 
-    parser.add_argument(
-        "-pl", help="VCF ploidy (default: 2)", default=2, type=int, metavar="PLOIDY"
+    # Group: Selection parameters
+    grp_select = parser.add_argument_group(
+        "Selection", "Core parameters controlling selection"
     )
-    parser.add_argument(
-        "-ts",
-        help="Total SNPs in output set (0 = keep minimal; default: 0)",
-        default=0,
+    grp_select.add_argument(
+        "-pl",
+        "--ploidy",
+        dest="pl",
+        help="VCF ploidy",
+        default=2,
         type=int,
-        metavar="TOTAL_SNP",
+        metavar="PLOIDY",
     )
-    parser.add_argument(
+    grp_select.add_argument(
         "-md",
-        help="Minimal Hamming distance between samples (default: 1)",
+        "--min-distance",
+        dest="md",
+        help="Minimal Hamming distance between samples",
         default=1,
         type=int,
         metavar="MIN_DIST",
     )
-    parser.add_argument(
-        "-ch",
-        help="Convert heterozygous calls into NA (default: False)",
-        action="store_true",
-        default=False,
-    )
-    parser.add_argument(
+    grp_select.add_argument(
         "-ns",
-        help="Number of distinct SNP sets in output (default: 1)",
+        "--num-sets",
+        dest="ns",
+        help="Number of distinct SNP sets in output",
         default=1,
         type=int,
         metavar="N_SETS",
     )
-    parser.add_argument(
-        "-oMx",
-        help=(
-            "Maximum overlap count allowed with the base minimal set for "
-            "alternative sets (-1 = unlimited; default: -1)"
-        ),
-        default=-1,
-        type=int,
-        metavar="OVERLAP_MAX_N",
-    )
-    parser.add_argument(
-        "-oMf",
-        help=(
-            "Maximum overlap fraction allowed with the base minimal set for "
-            "alternative sets (-1 = unlimited; default: -1.0)"
-        ),
-        default=-1.0,
-        type=float,
-        metavar="OVERLAP_MAX_FRAC",
-    )
-    parser.add_argument(
-        "--quiet",
-        help="Suppress progress output (default: False)",
+
+    # Group: Output & formatting
+    grp_output = parser.add_argument_group("Output", "Output formatting and summary")
+    grp_output.add_argument(
+        "-ch",
+        "--convert-het",
+        dest="ch",
+        help="Convert heterozygous calls into NA",
         action="store_true",
         default=False,
     )
-    parser.add_argument(
-        "--log-level",
-        help=(
-            "Logging level (DEBUG, INFO, WARNING, ERROR); default depends on --quiet"
-        ),
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        default=None,
-    )
-    parser.add_argument(
-        "--log-format",
-        help="Logging format: text or json (default: text)",
-        choices=["text", "json"],
-        default="text",
-    )
-    parser.add_argument(
-        "--summary-tsv",
-        help=(
-            "Write per-set summary TSV to this path (columns: set_index, output_vcf, "
-            "num_snps, min_distance, snp_ids)."
-        ),
-        type=parser_resolve_path,
-        default=None,
-        metavar="SUMMARY_TSV",
-    )
 
-    # Memory optimization options
-    parser.add_argument(
-        "--lazy-loading",
-        help="Use lazy loading for large VCF files to reduce memory usage",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--cache-size",
-        help="Number of SNPs to keep in memory cache when using lazy loading (default: 1000)",
-        type=int,
-        default=1000,
-        metavar="CACHE_SIZE",
-    )
-
-    # IO formats (bcftools-style letters)
-    parser.add_argument(
+    # Group: IO formats
+    grp_io = parser.add_argument_group("IO formats", "Input and output VCF/BCF formats")
+    grp_io.add_argument(
+        "-I",
         "--input-format",
         help=(
             "Input format (bcftools-style): auto (default), v (VCF), z (VCF.gz), "
@@ -205,7 +155,8 @@ def create_parser() -> argparse.ArgumentParser:
         choices=["auto", "v", "z", "u", "b"],
         default="auto",
     )
-    parser.add_argument(
+    grp_io.add_argument(
+        "-O",
         "--output-format",
         help=(
             "Output format (bcftools-style): v (VCF), z (VCF.gz), "
@@ -213,6 +164,35 @@ def create_parser() -> argparse.ArgumentParser:
         ),
         choices=["v", "z", "u", "b"],
         default="v",
+    )
+
+    # Group: Performance & memory
+    # Lazy loading options removed - no longer needed
+
+    # Group: Logging
+    grp_log = parser.add_argument_group("Logging", "Logging verbosity and format")
+    grp_log.add_argument(
+        "-q",
+        "--quiet",
+        help="Suppress progress output",
+        action="store_true",
+        default=False,
+    )
+    grp_log.add_argument(
+        "-L",
+        "--log-level",
+        help=(
+            "Logging level (DEBUG, INFO, WARNING, ERROR); default depends on --quiet"
+        ),
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        default=None,
+    )
+    grp_log.add_argument(
+        "-F",
+        "--log-format",
+        help="Logging format: text or json",
+        choices=["text", "json"],
+        default="text",
     )
 
     return parser
@@ -246,21 +226,15 @@ def main() -> None:
     # Create configuration
     config = MDSearchConfig(
         input_vcf=args.ivcf,
-        output_prefix=args.ovcf_prefix,
+        output_prefix=args.outdir,
         ploidy=args.pl,
-        max_snps=args.ts,
         min_distance=args.md,
         convert_het=args.ch,
         n_sets=args.ns,
-        overlap_constraints=OverlapConstraints(
-            max_number=args.oMx, max_fraction=args.oMf
-        ),
         verbose=not args.quiet,
         log_level=args.log_level,
         log_format=args.log_format,
-        summary_tsv=args.summary_tsv,
-        lazy_loading=args.lazy_loading,
-        cache_size=args.cache_size,
+        # Lazy loading arguments removed - no longer needed
         input_format=args.input_format,
         output_format=args.output_format,
     )

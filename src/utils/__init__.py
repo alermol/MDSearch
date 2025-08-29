@@ -2,13 +2,12 @@
 
 from .memory_monitor import MemoryMonitor
 from .logging_setup import setup_logger
-from .validation import validate_cli_arguments, validate_overlap_constraints
+from .validation import validate_cli_arguments
 
 __all__ = [
     "MemoryMonitor",
     "setup_logger",
     "validate_cli_arguments",
-    "validate_overlap_constraints",
     "ensure_variant_index",
 ]
 

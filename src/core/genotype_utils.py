@@ -1,33 +1,37 @@
 """Genotype conversion and utility functions."""
 
-from typing import List, Optional
+from typing import List, Optional, Dict
 import numpy as np
+import math
 
-__all__ = ["extract_gt", "gt_to_value", "calculate_maf", "is_het"]
+__all__ = [
+    "extract_gt",
+    "gt_to_value",
+    "calculate_maf",
+    "is_het",
+    "calculate_shannon_entropy",
+]
 
 
 def extract_gt(format_field: str, sample_field: str) -> str:
-    """Extract GT subfield from sample data.
+    """Extract GT subfield from sample field based on format specification.
 
     Args:
-        format_field: FORMAT field from VCF (e.g., "GT:DP:GQ")
-        sample_field: Sample data field (e.g., "0/1:10:99")
+        format_field: FORMAT column (e.g., "GT:DP:GQ")
+        sample_field: Sample-specific data (e.g., "0/0:14:94")
 
     Returns:
-        GT value as string, or "." if GT not found
+        GT value (e.g., "0/0") or "." if not found
 
     Example:
-        >>> extract_gt("GT:DP:GQ", "0/1:10:99")
-        '0/1'
-        >>> extract_gt("DP:GQ", "10:99")  # No GT field
-        '.'
-        >>> extract_gt("GT", "0/0")
+        >>> extract_gt("GT:DP:GQ", "0/0:14:94")
         '0/0'
+        >>> extract_gt("DP:GQ", "14:94")
+        '.'
     """
-    keys = format_field.split(":") if format_field else []
-    if "GT" not in keys:
+    if "GT" not in format_field:
         return "."
-    gt_index = keys.index("GT")
+    gt_index = format_field.split(":").index("GT")
     parts = sample_field.split(":")
     return parts[gt_index] if gt_index < len(parts) else "."
 
@@ -77,7 +81,7 @@ def gt_to_value(gt: str, ploidy: Optional[int], convert_het: Optional[bool]) -> 
 
 
 def calculate_maf(geno: List[float], ploidy: Optional[int]) -> float:
-    """Compute minor allele frequency for a SNP given numeric genotypes.
+    """Calculate Minor Allele Frequency (MAF) from genotype values.
 
     Args:
         geno: List of numeric genotype values
@@ -149,3 +153,55 @@ def is_het(gt: str) -> bool:
         return False
     alleles = [a for a in gt.replace("|", "/").split("/") if a != ""]
     return len(set(alleles)) > 1
+
+
+def calculate_shannon_entropy(chromosome_counts: Dict[str, int]) -> float:
+    """Calculate Shannon entropy for chromosome distribution.
+
+    Shannon entropy measures the balance of distribution of SNPs across chromosomes.
+    Higher entropy indicates more balanced distribution, lower entropy indicates
+    concentration in fewer chromosomes.
+
+    Note: Chromosomes with 0 SNPs are included in the calculation to provide
+    a complete picture of distribution across all chromosomes in the VCF.
+
+    Args:
+        chromosome_counts: Dictionary mapping chromosome names to SNP counts
+                          (including 0 counts for chromosomes without SNPs)
+
+    Returns:
+        Shannon entropy value (0.0 to log2(num_chromosomes))
+
+    Example:
+        >>> # Balanced distribution across 3 chromosomes
+        >>> balanced = {"chr1": 10, "chr2": 10, "chr3": 10}
+        >>> entropy = calculate_shannon_entropy(balanced)
+        >>> print(f"Balanced distribution entropy: {entropy:.3f}")
+        Balanced distribution entropy: 1.585
+
+        >>> # Unbalanced distribution (concentrated in chr1)
+        >>> unbalanced = {"chr1": 25, "chr2": 3, "chr3": 2}
+        >>> entropy = calculate_shannon_entropy(unbalanced)
+        >>> print(f"Balanced distribution entropy: {entropy:.3f}")
+        Balanced distribution entropy: 0.863
+
+        >>> # Including chromosomes with 0 SNPs (from VCF headers)
+        >>> with_zeros = {"chr1": 5, "chr2": 0, "chr3": 0, "chr4": 5}
+        >>> entropy = calculate_shannon_entropy(with_zeros)
+        >>> print(f"With zero-count chromosomes: {entropy:.3f}")
+        With zero-count chromosomes: 1.000
+    """
+    if not chromosome_counts:
+        return 0.0
+
+    total_snps = sum(chromosome_counts.values())
+    if total_snps == 0:
+        return 0.0
+
+    entropy = 0.0
+    for count in chromosome_counts.values():
+        if count > 0:
+            probability = count / total_snps
+            entropy -= probability * math.log2(probability)
+
+    return entropy

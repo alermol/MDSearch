@@ -1,11 +1,13 @@
 """TSV summary file output operations."""
 
 from pathlib import Path
-from typing import List, Union
+from typing import List
 from dataclasses import dataclass
 
 from ..core.distance_calculator import DistanceCalculator
-from ..core.vcf_parser import VCFData, LazyVCFData
+from ..core.vcf_parser import VCFData
+from ..core.genotype_utils import calculate_shannon_entropy
+from collections import Counter
 
 __all__ = ["SetStatistics", "SummaryWriter"]
 
@@ -19,22 +21,22 @@ class SetStatistics:
         output_vcf: Name of the output VCF file
         num_snps: Number of SNPs in the set
         min_distance: Minimum Hamming distance between samples
-        snp_ids: Comma-separated list of SNP IDs
+        shannon_entropy: Shannon entropy of chromosome distribution
 
     Example:
         >>> stats = SetStatistics(
         ...     set_index=1, output_vcf="output_1.vcf",
-        ...     num_snps=5, min_distance=3.0, snp_ids="rs1,rs2,rs3,rs4,rs5"
+        ...     num_snps=5, min_distance=3.0, shannon_entropy=1.585
         ... )
-        >>> print(f"Set {stats.set_index}: {stats.num_snps} SNPs, distance {stats.min_distance}")
-        Set 1: 5 SNPs, distance 3.0
+        >>> print(f"Set {stats.set_index}: {stats.num_snps} SNPs, distance {stats.min_distance}, entropy {stats.shannon_entropy}")
+        Set 1: 5 SNPs, distance 3.0, entropy 1.585
     """
 
     set_index: int
     output_vcf: str
     num_snps: int
     min_distance: float
-    snp_ids: str
+    shannon_entropy: float
 
 
 class SummaryWriter:
@@ -62,13 +64,13 @@ class SummaryWriter:
         snp_sets: List[List[str]],
         output_prefix: Path,
         output_path: Path,
-        vcf_data: Union[VCFData, LazyVCFData],
+        vcf_data: VCFData,
     ) -> None:
         """Write per-set summary statistics to TSV.
 
         Args:
             snp_sets: List of SNP sets, each containing SNP IDs
-            output_prefix: Prefix for output VCF files
+            output_prefix: Path to output folder containing VCF files in 'mdss' subdirectory
             output_path: Path for the summary TSV file
             vcf_data: VCF data containing SNP information
 
@@ -85,27 +87,49 @@ class SummaryWriter:
             >>> # Creates summary.tsv with statistics for each set
             >>>
             >>> # Example output format:
-            >>> # set_index	output_vcf	num_snps	min_distance	snp_ids
-            >>> # 1	output_1.vcf	2	3	rs1,rs2
-            >>> # 2	output_2.vcf	2	4	rs3,rs4
+            >>> # set_index	output_vcf	num_snps	min_distance	shannon_entropy
+            >>> # 1	output_1.vcf	2	3	1.000
+            >>> # 2	output_2.vcf	2	4	1.585
         """
         header = [
             "set_index",
             "output_vcf",
             "num_snps",
             "min_distance",
-            "snp_ids",
+            "shannon_entropy",
         ]
 
         lines = ["\t".join(header)]
 
         for si, s in enumerate(snp_sets, start=1):
-            out_vcf = f"{output_prefix}_{si}.vcf"
+            out_vcf = f"minimal_set_{si}.vcf"
             min_d = self.distance_calc.calc_distance_for_snp_ids(
                 s, vcf_data.snp_genotypes
             )
-            snp_ids_str = ",".join(sorted(s))
-            row = [str(si), out_vcf, str(len(s)), str(int(min_d)), snp_ids_str]
+
+            # Calculate Shannon entropy for chromosome distribution
+            # Include all chromosomes from VCF, even those with 0 SNPs in this set
+            chromosome_counts: Counter[str] = Counter()
+
+            # Count SNPs per chromosome in the current set
+            for snp_id in s:
+                if snp_id in vcf_data.snp_genotypes:
+                    chromosome_counts[vcf_data.snp_genotypes[snp_id].chromosome] += 1
+
+            # Add all chromosomes from VCF with 0 count if not present
+            for chrom in vcf_data.headers.contigs:
+                if chrom not in chromosome_counts:
+                    chromosome_counts[chrom] = 0
+
+            shannon_entropy = calculate_shannon_entropy(chromosome_counts)
+
+            row = [
+                str(si),
+                out_vcf,
+                str(len(s)),
+                str(int(min_d)),
+                f"{shannon_entropy:.3f}",
+            ]
             lines.append("\t".join(row))
 
         output_path.parent.mkdir(parents=True, exist_ok=True)

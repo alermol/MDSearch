@@ -2,30 +2,18 @@
 
 import sys
 import logging
-from typing import List, Set, Optional, Union
-from dataclasses import dataclass
-from itertools import combinations
-from math import floor
+from typing import List, Set, Optional
 
 import numpy as np
 from numpy.typing import NDArray
 
 from .distance_calculator import DistanceCalculator
-from .vcf_parser import VCFData, LazyVCFData
+from .vcf_parser import VCFData
 from ..utils.memory_monitor import MemoryMonitor
 
-# Type alias for VCF data that supports both regular and lazy loading
-VCFDataType = Union[VCFData, LazyVCFData]
+# VCFDataType alias removed - no longer needed without lazy loading
 
-__all__ = ["OverlapConstraints", "BuildError", "SNPSelector", "VCFDataType"]
-
-
-@dataclass
-class OverlapConstraints:
-    """Overlap constraints for alternative set generation."""
-
-    max_number: int = -1
-    max_fraction: float = -1.0
+__all__ = ["BuildError", "SNPSelector"]
 
 
 class BuildError(Exception):
@@ -63,8 +51,8 @@ class SNPSelector:
         self.memory_monitor = memory_monitor
         self.logger = logger
 
-    def select_first_snp(
-        self, vcf_data: VCFDataType, excluded: Optional[Set[str]] = None
+    def select_first_discriminatory_snp(
+        self, vcf_data: VCFData, excluded: Optional[Set[str]] = None
     ) -> str:
         """Select SNP with highest MAF not in excluded; tie-break by SNP ID.
 
@@ -76,7 +64,7 @@ class SNPSelector:
             SNP ID with highest MAF (or lexicographically first if tied)
 
         Raises:
-            SystemExit: If no SNPs available after exclusions
+            BuildError: If no SNPs available after exclusions
 
         Example:
             >>> selector = SNPSelector(distance_calc, memory_monitor, logger)
@@ -88,26 +76,24 @@ class SNPSelector:
         excluded = excluded or set()
         candidates = []
 
-        for sid, snp_data in vcf_data.snp_genotypes.items():
+        for sid, _ in vcf_data.snp_genotypes.items():
             if sid in excluded:
                 continue
             maf = vcf_data.snp_maf_cache.get(sid, 0.0)
             candidates.append((sid, maf))
 
         if not candidates:
-            sys.exit("No SNPs available for selection after exclusions.")
+            raise BuildError("No SNPs available for selection after exclusions.")
 
         # Sort by MAF desc, SNP ID asc
         candidates.sort(key=lambda x: (-x[1], x[0]))
         return candidates[0][0]
 
-    def build_primary_set(
+    def build_discriminatory_set(
         self,
-        vcf_data: VCFDataType,
+        vcf_data: VCFData,
         min_distance: int,
         excluded: Optional[Set[str]] = None,
-        log_start: bool = True,
-        log_distances: bool = True,
     ) -> List[str]:
         """Greedily build initial SNP set maximizing MAF under exclusions.
 
@@ -123,7 +109,7 @@ class SNPSelector:
 
         Example:
             >>> selector = SNPSelector(distance_calc, memory_monitor, logger)
-            >>> primary_set = selector.build_primary_set(
+            >>> primary_set = selector.build_discriminatory_set(
             ...     vcf_data, min_distance=3, excluded={"rs999"}
             ... )
             >>> print(f"Primary set contains {len(primary_set)} SNPs")
@@ -136,24 +122,20 @@ class SNPSelector:
         current_snps_geno: List[List[float]] = []
 
         # Choose first SNP
-        current_snp = self.select_first_snp(vcf_data, excluded=excluded)
+        current_snp = self.select_first_discriminatory_snp(vcf_data, excluded=excluded)
         current_snps_geno.append(vcf_data.snp_genotypes[current_snp].genotypes)
         current_snp_set.append(current_snp)
 
-        if log_start and self.logger.isEnabledFor(logging.INFO):
-            self.logger.info("Primary SNP selection...")
+        if self.logger.isEnabledFor(logging.INFO):
+            self.logger.info("Discriminatory SNP selection...")
 
         # Identify primary set of SNPs deterministically with tie-breakers
         while (
-            self.distance_calc.calc_min_distance(current_snps_geno, log=log_distances)
+            self.distance_calc.calc_min_distance(current_snps_geno, log=False)
             < min_distance
         ):
-            if log_distances and self.logger.isEnabledFor(logging.INFO):
-                self.logger.info(
-                    f"Current SNP set contains {len(current_snp_set)} SNPs..."
-                )
             parent_nodes_info = []
-            for sid, snp_data in vcf_data.snp_genotypes.items():
+            for sid, _ in vcf_data.snp_genotypes.items():
                 if (sid in current_snp_set) or (sid in excluded):
                     continue
                 maf = vcf_data.snp_maf_cache.get(sid, 0.0)
@@ -168,7 +150,7 @@ class SNPSelector:
             current_snps_geno.append(vcf_data.snp_genotypes[current_snp].genotypes)
             current_snp_set.append(current_snp)
 
-        if log_start and self.logger.isEnabledFor(logging.INFO):
+        if self.logger.isEnabledFor(logging.INFO):
             self.logger.info(
                 f"After 1st step {len(current_snp_set)} primary SNP selected"
             )
@@ -177,7 +159,7 @@ class SNPSelector:
     def deterministic_eliminate(
         self,
         snp_set: List[str],
-        vcf_data: VCFDataType,
+        vcf_data: VCFData,
         min_distance: int,
         log_start: bool = True,
     ) -> List[str]:
@@ -271,171 +253,66 @@ class SNPSelector:
 
     def search_optimal_sets(
         self,
-        vcf_data: VCFDataType,
+        vcf_data: VCFData,
         min_distance: int,
         n_sets: int,
-        max_snps: int,
-        overlap_constraints: OverlapConstraints,
     ) -> List[List[str]]:
-        """Find up to n_sets minimal discriminating SNP lists under constraints.
+        """Find all perfectly orthogonal (disjoint) minimal discriminating SNP sets.
 
-        Args:
-            vcf_data: VCF data containing SNP information
-            min_distance: Minimum Hamming distance required between samples
-            n_sets: Number of alternative SNP sets to generate
-            max_snps: Maximum SNPs per set (0 = keep minimal)
-            overlap_constraints: Constraints on overlap between alternative sets
-
-        Returns:
-            List of SNP sets, each containing a list of SNP IDs
-
-        Raises:
-            SystemExit: If insufficient SNPs available for discrimination
-
-        Example:
-            >>> selector = SNPSelector(distance_calc, memory_monitor, logger)
-            >>> constraints = OverlapConstraints(max_number=2, max_fraction=-1.0)
-            >>> optimal_sets = selector.search_optimal_sets(
-            ...     vcf_data, min_distance=3, n_sets=3, max_snps=10,
-            ...     overlap_constraints=constraints
-            ... )
-            >>> print(f"Generated {len(optimal_sets)} optimal SNP sets")
-            >>> for i, snp_set in enumerate(optimal_sets):
-            ...     print(f"Set {i+1}: {len(snp_set)} SNPs")
-            Generated 3 optimal SNP sets
-            Set 1: 5 SNPs
-            Set 2: 6 SNPs
-            Set 3: 5 SNPs
+        This implementation enumerates disjoint minimal sets across the entire VCF.
+        The n_sets parameter is ignored: all disjoint sets found are returned.
         """
-        # Base minimal set
-        try:
-            base_primary = self.build_primary_set(
-                vcf_data,
-                min_distance,
-                excluded=set(),
-                log_start=True,
-                log_distances=True,
-            )
-        except BuildError:
-            sys.exit("Not enough polymorphic SNP to discriminate samples. Exit.")
-        base_minimal = self.deterministic_eliminate(
-            base_primary, vcf_data, min_distance
-        )
+        if self.logger.isEnabledFor(logging.INFO):
+            self.logger.info("Searching for disjoint minimal SNP sets...")
 
-        # Enumerate alternatives by excluding each SNP from the base minimal set
-        unique_sets = []
-        seen = set()
+        # Enumerate orthogonal sets using global exclusions to enforce disjointness
+        disjoint_sets: List[List[str]] = []
+        excluded_global: Set[str] = set()
 
-        def add_set(s: List[str]) -> None:
-            key = tuple(sorted(s))
-            if key not in seen:
-                seen.add(key)
-                unique_sets.append(list(key))
-
-        add_set(base_minimal)
-
-        # Determine allowed maximum overlap (default = no cap)
-        allowed_max_num = (
-            overlap_constraints.max_number
-            if (
-                overlap_constraints.max_number is not None
-                and overlap_constraints.max_number >= 0
-            )
-            else len(base_minimal)
-        )
-        allowed_max_frac = (
-            floor(overlap_constraints.max_fraction * len(base_minimal))
-            if (
-                overlap_constraints.max_fraction is not None
-                and overlap_constraints.max_fraction >= 0
-            )
-            else len(base_minimal)
-        )
-        allowed_max = min(allowed_max_num, allowed_max_frac)
-
-        # If we need to cap overlap, exclude combinations of base SNPs to achieve it
-        exclude_size = max(1, len(base_minimal) - allowed_max)
-        for excl in combinations(sorted(base_minimal), exclude_size):
+        alt_index = 0
+        while n_sets > len(disjoint_sets):
             try:
-                alt_primary = self.build_primary_set(
+                if self.logger.isEnabledFor(logging.INFO):
+                    self.logger.info(
+                        f"Attempting to build discriminatory set #{alt_index + 1}"
+                    )
+                selected_set = self.build_discriminatory_set(
                     vcf_data,
                     min_distance,
-                    excluded=set(excl),
-                    log_start=False,
-                    log_distances=False,
+                    excluded=set(excluded_global),
                 )
             except BuildError:
-                continue
-            alt_minimal = self.deterministic_eliminate(
-                alt_primary, vcf_data, min_distance, log_start=False
-            )
-            overlap = len(set(alt_minimal).intersection(base_minimal))
-            if len(alt_minimal) == len(base_minimal) and (overlap <= allowed_max):
-                add_set(alt_minimal)
-            if len(unique_sets) >= n_sets:
-                break
-
-        # Fallback: if no cap requested (allowed_max equals base size), use single exclusions
-        if len(unique_sets) < n_sets and allowed_max >= len(base_minimal):
-            for sid in sorted(base_minimal):
-                try:
-                    alt_primary = self.build_primary_set(
-                        vcf_data,
-                        min_distance,
-                        excluded={sid},
-                        log_start=False,
-                        log_distances=False,
-                    )
-                except BuildError:
-                    continue
-                alt_minimal = self.deterministic_eliminate(
-                    alt_primary, vcf_data, min_distance
+                sys.exit(
+                    f"Not enough polymorphic SNP to select #{alt_index + 1} discriminatory set. Exit."
                 )
-                overlap = len(set(alt_minimal).intersection(base_minimal))
-                if len(alt_minimal) == len(base_minimal):
-                    add_set(alt_minimal)
-                if len(unique_sets) >= n_sets:
-                    break
+            selected_set_minimal = self.deterministic_eliminate(
+                selected_set, vcf_data, min_distance, log_start=False
+            )
 
-        # Compute final selection limited to n_sets and log accurate count
-        selected_sets = unique_sets[:n_sets]
-        if self.logger.isEnabledFor(logging.INFO):
-            self.logger.info(f"{len(selected_sets)} discriminating SNP sets selected.")
-
-        # Optionally expand by PIC to reach max_snps
-        best_snp_sets_final = []
-        for si, s in enumerate(selected_sets, start=1):
-            orig_snp_number = len(s)
-            if max_snps > len(s):
-                snp_maf = {
-                    sid: vcf_data.snp_maf_cache[sid]
-                    for sid in vcf_data.snp_genotypes
-                    if sid not in s
-                }
-                snp_pic = sorted(
-                    [
-                        (
-                            sid,
-                            1 - ((maf**2) + ((1 - maf) ** 2)),
-                        )
-                        for sid, maf in snp_maf.items()
-                    ],
-                    key=lambda x: x[1],
-                )[::-1]
-                n_snps_to_add = max_snps - len(s)
-                s = list(s) + [i[0] for i in snp_pic[:n_snps_to_add]]
+            if not selected_set_minimal:
+                break
+            # Ensure strict disjointness from all previously selected sets
+            if all(
+                len(set(selected_set_minimal).intersection(set(s))) == 0
+                for s in disjoint_sets
+            ):
+                disjoint_sets.append(sorted(selected_set_minimal))
+                excluded_global.update(selected_set_minimal)
+                alt_index += 1
                 if self.logger.isEnabledFor(logging.INFO):
                     self.logger.info(
-                        f"{n_snps_to_add} SNPs added to set {si} "
-                        f"(original set contains {orig_snp_number} SNPs, "
-                        f"total number of SNPs: {len(s)})."
+                        f"Added alternative set #{alt_index} with {len(selected_set_minimal)} SNP(s)"
                     )
-                best_snp_sets_final.append(s)
             else:
-                best_snp_sets_final.append(list(s))
+                excluded_global.update(selected_set_minimal)
                 if self.logger.isEnabledFor(logging.INFO):
                     self.logger.info(
-                        f"Addition of SNPs to discriminating set {si} "
-                        f"is not required (total number of SNPs: {len(s)})."
+                        "Candidate alternative set overlapped with existing; skipping"
                     )
-        return best_snp_sets_final
+                continue
+
+        if self.logger.isEnabledFor(logging.INFO):
+            self.logger.info(
+                f"{len(disjoint_sets)} orthogonal discriminating SNP set(s) selected."
+            )
+        return disjoint_sets

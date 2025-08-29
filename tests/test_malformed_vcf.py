@@ -18,13 +18,9 @@ def run_mdsearch(ivcf: Path, out_prefix: Path, **kwargs):
     ]
     cli_map = {
         "ploidy": "-pl",
-        "total_snps": "-ts",
         "min_dist": "-md",
         "convert_het": "-ch",
         "n_sets": "-ns",
-        "overlap_max_number": "-oMx",
-        "overlap_max_fraction": "-oMf",
-        "summary_tsv": "--summary-tsv",
     }
     for k, v in kwargs.items():
         flag = cli_map[k]
@@ -49,7 +45,7 @@ def test_missing_fileformat_header_errors(tmp_path: Path):
     import pytest
 
     with pytest.raises(subprocess.CalledProcessError):
-        run_mdsearch(ivcf, out_prefix, ploidy=2, total_snps=0, min_dist=1, n_sets=1)
+        run_mdsearch(ivcf, out_prefix, ploidy=2, min_dist=1, n_sets=1)
 
 
 def test_missing_chrom_header_errors(tmp_path: Path):
@@ -66,7 +62,7 @@ def test_missing_chrom_header_errors(tmp_path: Path):
     import pytest
 
     with pytest.raises(subprocess.CalledProcessError):
-        run_mdsearch(ivcf, out_prefix, ploidy=2, total_snps=0, min_dist=1, n_sets=1)
+        run_mdsearch(ivcf, out_prefix, ploidy=2, min_dist=1, n_sets=1)
 
 
 def test_invalid_number_of_columns_errors(tmp_path: Path):
@@ -84,7 +80,7 @@ def test_invalid_number_of_columns_errors(tmp_path: Path):
     import pytest
 
     with pytest.raises(subprocess.CalledProcessError):
-        run_mdsearch(ivcf, out_prefix, ploidy=2, total_snps=0, min_dist=1, n_sets=1)
+        run_mdsearch(ivcf, out_prefix, ploidy=2, min_dist=1, n_sets=1)
 
 
 def test_multiallelic_genotype_indices_errors_even_with_single_alt(tmp_path: Path):
@@ -102,4 +98,4 @@ def test_multiallelic_genotype_indices_errors_even_with_single_alt(tmp_path: Pat
     import pytest
 
     with pytest.raises(subprocess.CalledProcessError):
-        run_mdsearch(ivcf, out_prefix, ploidy=2, total_snps=0, min_dist=1, n_sets=1)
+        run_mdsearch(ivcf, out_prefix, ploidy=2, min_dist=1, n_sets=1)

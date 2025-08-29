@@ -3,10 +3,9 @@
 import logging
 from pathlib import Path
 from typing import Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from .core import VCFParser, DistanceCalculator, SNPSelector, LazyVCFData, VCFDataType
-from .core.snp_selector import OverlapConstraints
+from .core import VCFParser, DistanceCalculator, SNPSelector
 from .io import VCFWriter, WriteConfig, SummaryWriter
 from .utils import MemoryMonitor, setup_logger
 from .utils import ensure_variant_index
@@ -20,52 +19,41 @@ class MDSearchConfig:
 
     Attributes:
         input_vcf: Path to input VCF file
-        output_prefix: Prefix for output file names
+        output_prefix: Path to output folder (will be created if absent)
         ploidy: Ploidy level (e.g., 2 for diploid)
-        max_snps: Maximum SNPs per set (0 = keep minimal)
         min_distance: Minimum Hamming distance required
         convert_het: Whether to convert heterozygous calls to missing
         n_sets: Number of alternative SNP sets to generate
-        overlap_constraints: Constraints on overlap between alternative sets
         verbose: Whether to enable verbose logging
         log_level: Logging level override
         log_format: Logging format (text or json)
-        summary_tsv: Optional path for summary TSV file
-        lazy_loading: Whether to use lazy loading for large files
-        cache_size: Number of SNPs to keep in memory cache
         input_format: Input format identifier (auto, v, z, u, b)
         output_format: Output format identifier (v, z, u, b)
 
     Example:
         >>> from pathlib import Path
-        >>> from src.core.snp_selector import OverlapConstraints
-        >>>
         >>> config = MDSearchConfig(
         ...     input_vcf=Path("sample.vcf"),
         ...     output_prefix=Path("output"),
         ...     ploidy=2,
         ...     min_distance=3,
         ...     n_sets=2,
-        ...     lazy_loading=True
+        ...     # lazy_loading removed
         ... )
-        >>> print(f"Input: {config.input_vcf}, Ploidy: {config.ploidy}")
-        Input: sample.vcf, Ploidy: 2
+        >>> print(f"Input: {config.input_vcf}, Output folder: {config.output_prefix}")
+        Input: sample.vcf, Output folder: output
     """
 
     input_vcf: Path
     output_prefix: Path
     ploidy: int = 2
-    max_snps: int = 0
     min_distance: int = 1
     convert_het: bool = False
     n_sets: int = 1
-    overlap_constraints: OverlapConstraints = field(default_factory=OverlapConstraints)
     verbose: bool = True
     log_level: Optional[str] = None
     log_format: str = "text"
-    summary_tsv: Optional[Path] = None
-    lazy_loading: bool = True  # Enable lazy loading by default for better memory usage
-    cache_size: int = 1000  # Number of SNPs to keep in memory cache
+    # Lazy loading fields removed - no longer needed
     input_format: str = "auto"  # one of: auto|v|z|u|b (bcftools letters)
     output_format: str = "v"  # one of: v|z|u|b (bcftools letters)
 
@@ -136,40 +124,17 @@ class MDSearchApp:
                 self.logger.error(f"Failed to ensure variant index: {e}")
             raise
 
-        # 2. Parse and validate VCF (with optional lazy loading)
-        vcf_data: VCFDataType
-        if self.config.lazy_loading:
-            vcf_data = self.vcf_parser.parse_and_validate_lazy(
-                self.config.input_vcf,
-                self.config.ploidy,
-                self.config.convert_het,
-                self.config.cache_size,
-            )
-        else:
-            vcf_data = self.vcf_parser.parse_and_validate(
-                self.config.input_vcf, self.config.ploidy, self.config.convert_het
-            )
+        # 2. Parse and validate VCF
+        vcf_data = self.vcf_parser.parse_and_validate(
+            self.config.input_vcf, self.config.ploidy, self.config.convert_het
+        )
 
         # 3. Search for optimal SNP sets
         snp_sets = self.snp_selector.search_optimal_sets(
             vcf_data,
             self.config.min_distance,
             self.config.n_sets,
-            self.config.max_snps,
-            self.config.overlap_constraints,
         )
-
-        # 4. Log selected SNP details when not using TSV summary
-        if not self.config.summary_tsv:
-            for si, s in enumerate(snp_sets, start=1):
-                min_d = self.distance_calc.calc_distance_for_snp_ids(
-                    s, vcf_data.snp_genotypes, log=False
-                )
-                snp_ids_str = ",".join(sorted(s))
-                self.logger.info(
-                    f"Set {si}: {len(s)} SNPs, min_distance={int(min_d)}, "
-                    f"SNP_IDs=[{snp_ids_str}]"
-                )
 
         # 5. Write output files
         if self.logger.isEnabledFor(logging.INFO):
@@ -187,13 +152,13 @@ class MDSearchApp:
         if self.logger.isEnabledFor(logging.INFO):
             self.logger.info("Done")
 
-        # 6. Write summary if requested
-        if self.config.summary_tsv:
-            self.summary_writer.write_summary(
-                snp_sets, self.config.output_prefix, self.config.summary_tsv, vcf_data
-            )
-            if self.logger.isEnabledFor(logging.INFO):
-                self.logger.info(f"Summary TSV written: {self.config.summary_tsv}")
+        # 6. Write summary (always created)
+        summary_path = self.config.output_prefix / "summary.tsv"
+        self.summary_writer.write_summary(
+            snp_sets, self.config.output_prefix, summary_path, vcf_data
+        )
+        if self.logger.isEnabledFor(logging.INFO):
+            self.logger.info(f"Summary TSV written: {summary_path}")
 
         # Final memory usage summary and cache statistics
         self.memory_monitor.check_memory_and_warn("processing complete")
@@ -201,10 +166,5 @@ class MDSearchApp:
             final_memory = self.memory_monitor.get_memory_usage_mb()
             self.logger.info(f"Final memory usage: {final_memory:.1f}MB")
 
-            # Log cache statistics for lazy loading
-            if self.config.lazy_loading and isinstance(vcf_data, LazyVCFData):
-                cache_stats = vcf_data.get_cache_stats()
-                self.logger.info(
-                    f"Lazy loading cache stats: {cache_stats['cache_size']}/{cache_stats['max_cache_size']} "
-                    f"SNPs cached ({cache_stats['total_snps']} total SNPs)"
-                )
+
+# Lazy loading cache statistics removed - no longer needed
