@@ -147,6 +147,13 @@ class MDSearchApp:
         # Get current timestamp
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
 
+        # Get comprehensive memory information (after run completion)
+        memory_summary = self.memory_monitor.get_memory_summary()
+        threshold_info = self.memory_monitor.get_threshold_info()
+        estimated_matrix_mb = self.memory_monitor.estimate_matrix_memory_mb(
+            len(vcf_data.snp_genotypes), len(vcf_data.headers.samples)
+        )
+
         # Prepare run info content
         lines = [
             "MDSearch Run Information",
@@ -159,6 +166,15 @@ class MDSearchApp:
             "",
             f"Run timestamp: {timestamp}",
             "",
+            "System Memory Information:",
+            f"  Current process memory: {memory_summary['current_mb']:.1f} MB",
+            f"  Peak process memory: {memory_summary['peak_mb']:.1f} MB",
+            f"  Available system memory: {memory_summary['available_mb']:.1f} MB",
+            f"  Total system memory: {memory_summary['total_mb']:.1f} MB",
+            f"  Memory warning threshold: {memory_summary['warning_threshold_mb']:.1f} MB ({threshold_info['warning_percent']:.0f}%)",
+            f"  Critical threshold: {memory_summary['critical_threshold_mb']:.1f} MB ({threshold_info['critical_percent']:.0f}%)",
+            f"  Estimated genotype matrix memory: {estimated_matrix_mb:.1f} MB",
+            "",
             "Input Configuration:",
             f"  Input VCF: {self.config.input_vcf}",
             f"  Input format: {self.config.input_format}",
@@ -167,7 +183,7 @@ class MDSearchApp:
             f"  Ploidy: {self.config.ploidy}",
             f"  Minimum distance: {self.config.min_distance}",
             f"  Convert heterozygous: {self.config.convert_het}",
-            f"  Number of sets: {self.config.n_sets}",
+            f"  Target number of sets: {self.config.n_sets}",
             f"  Weight entropy: {self.config.weight_entropy}",
             f"  Weight MAF: {self.config.weight_maf}",
             f"  Verbose: {self.config.verbose}",
@@ -180,7 +196,7 @@ class MDSearchApp:
             f"  Chromosomes: {', '.join(sorted(vcf_data.headers.contigs))}",
             "",
             "Output Summary:",
-            f"  Number of SNP sets generated: {len(snp_sets)}",
+            f"  Number of SNP sets found: {len(snp_sets)}",
         ]
 
         # Add details for each SNP set

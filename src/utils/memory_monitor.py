@@ -63,6 +63,28 @@ class MemoryMonitor:
         rss: int = self.process.memory_info().rss
         return float(rss / 1024 / 1024)
 
+    def get_peak_memory_usage_mb(self) -> float:
+        """Get peak memory usage in MB during the process lifetime.
+
+        Returns:
+            Peak memory usage in megabytes, or current usage if peak info unavailable
+
+        Example:
+            >>> monitor = MemoryMonitor(logger)
+            >>> peak_mb = monitor.get_peak_memory_usage_mb()
+            >>> print(f"Peak memory usage: {peak_mb:.1f}MB")
+            Peak memory usage: 512.3MB
+        """
+        try:
+            # Try to get peak working set size (Windows) or peak RSS (Linux)
+            memory_info = self.process.memory_info()
+            peak_bytes = memory_info.peak_rss
+        except (AttributeError, OSError):
+            # Fallback to current memory usage if any error occurs
+            peak_bytes = self.process.memory_info().rss
+        
+        return float(peak_bytes / 1024 / 1024)
+
     def get_available_memory_mb(self) -> float:
         """Get available system memory in MB.
 
@@ -196,3 +218,24 @@ class MemoryMonitor:
         """
         gc.collect()
         self.logger.debug("Forced garbage collection completed")
+
+    def get_memory_summary(self) -> Dict[str, float]:
+        """Get comprehensive memory usage summary.
+
+        Returns:
+            Dictionary containing current, peak, available, and threshold memory information
+
+        Example:
+            >>> monitor = MemoryMonitor(logger)
+            >>> summary = monitor.get_memory_summary()
+            >>> print(f"Current: {summary['current_mb']:.1f}MB, Peak: {summary['peak_mb']:.1f}MB")
+            Current: 256.5MB, Peak: 512.3MB
+        """
+        return {
+            "current_mb": self.get_memory_usage_mb(),
+            "peak_mb": self.get_peak_memory_usage_mb(),
+            "available_mb": self.get_available_memory_mb(),
+            "total_mb": psutil.virtual_memory().total / 1024 / 1024,
+            "warning_threshold_mb": self.warning_threshold_mb,
+            "critical_threshold_mb": self.critical_threshold_mb,
+        }
