@@ -4,13 +4,12 @@ A Python package for identifying minimal sets of Single Nucleotide Polymorphisms
 that can discriminate between samples in a VCF file based on a specified minimum Hamming distance.
 """
 
+from .version import __version__
 from .app import MDSearchApp, MDSearchConfig
 from .core.vcf_parser import VCFParser, VCFData, SNPData
 from .core.distance_calculator import DistanceCalculator
 from .core.snp_selector import SNPSelector
 from .utils.memory_monitor import MemoryMonitor
-
-__version__ = "2.0.0"
 __all__ = [
     "MDSearchApp",
     "MDSearchConfig",
