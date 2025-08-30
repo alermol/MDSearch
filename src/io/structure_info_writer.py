@@ -71,11 +71,25 @@ class StructureInfoWriter:
         lines.extend(
             [
                 "",
+                "snp_profiles/ (Human-Readable SNP Profiles)",
+                "  This subdirectory contains human-readable text files for each SNP set:",
+            ]
+        )
+
+        for i, snp_set in enumerate(snp_sets, 1):
+            lines.append(
+                f"  • snp_set_{i}_profile.txt - Detailed profile for {len(snp_set)} SNPs"
+            )
+
+        lines.extend(
+            [
+                "",
                 "Root Directory Files:",
                 "  • summary.tsv - Summary statistics for all SNP sets",
                 "  • best_set.vcf - Copy of the best SNP set (highest Shannon entropy)",
                 "  • run_info.txt - Complete run information and memory usage",
                 "  • output_structure.txt - This file (directory structure information)",
+                "  • best_set_profile.txt - Human-readable profile for the best SNP set",
                 "",
                 "File Descriptions:",
                 "",
@@ -96,6 +110,11 @@ class StructureInfoWriter:
                 "  - Input data summary",
                 "  - System memory usage (current, peak, available, thresholds)",
                 "  - Output statistics",
+                "",
+                "SNP Profile Files:",
+                "  Each profile file contains:",
+                "  - Chromosome distribution information for SNP set (chromosome distribution)",
+                "  - Sample-by-sample genotype profiles in human-readable format",
                 "",
                 "VCF File Contents:",
                 "  Each VCF file contains:",

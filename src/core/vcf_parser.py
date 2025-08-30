@@ -39,6 +39,9 @@ class SNPData:
     sample_fields: List[str]
     maf: float
     chromosome: str
+    position: int
+    reference_allele: str
+    alternate_allele: str
 
 
 @dataclass
@@ -69,15 +72,15 @@ class VCFParser:
         self, vcf_path: Path, ploidy: int, convert_het: bool
     ) -> VCFData:
         """Parse VCF file and return structured data (loads all SNPs into memory).
-        
+
         Args:
             vcf_path: Path to VCF file to parse
             ploidy: Ploidy level for genotype interpretation
             convert_het: Whether to convert heterozygous calls to missing values
-            
+
         Returns:
             VCFData object containing parsed headers, genotypes, and cached scores
-            
+
         Raises:
             SystemExit: If VCF validation fails (missing headers, malformed data)
         """
@@ -212,6 +215,9 @@ class VCFParser:
                     sample_fields=sample_fields_list,
                     maf=maf,
                     chromosome=rec.chrom,
+                    position=rec.pos,
+                    reference_allele=str(rec.ref) if rec.ref else "",
+                    alternate_allele=str(rec.alts[0]) if rec.alts else "",
                 )
                 snp_genotypes[snp_id] = snp_data
                 snp_maf_cache[snp_id] = maf

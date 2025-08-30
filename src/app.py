@@ -13,6 +13,7 @@ from .io import (
     SummaryWriter,
     RunInfoWriter,
     StructureInfoWriter,
+    SNPProfileWriter,
 )
 from .utils import MemoryMonitor, setup_logger
 from .utils import ensure_variant_index
@@ -71,12 +72,13 @@ class MDSearchApp:
         self.summary_writer = SummaryWriter(self.distance_calc)
         self.run_info_writer = RunInfoWriter(self.memory_monitor)
         self.structure_info_writer = StructureInfoWriter(self.config.output_format)
+        self.snp_profile_writer = SNPProfileWriter(self.logger)
 
         self.memory_monitor.check_memory_and_warn("initialization")
 
     def run(self) -> None:
         """Execute the complete MDSearch pipeline.
-        
+
         Performs the full SNP selection workflow:
         1. Index verification
         2. VCF parsing and validation
@@ -185,6 +187,20 @@ class MDSearchApp:
                 f"Structure info writing completed in {structure_time:.2f}s"
             )
 
+        # Generate human-readable SNP profiles
+        if snp_sets:
+            profile_start = time.time()
+            profiles_dir = self.snp_profile_writer.write_snp_profiles(
+                self.config.output_prefix, snp_sets, vcf_data, self.config.ploidy
+            )
+            profile_time = time.time() - profile_start
+            if self.logger.isEnabledFor(logging.INFO):
+                self.logger.info(f"SNP profiles generated in: {profiles_dir}")
+            if self.logger.isEnabledFor(logging.DEBUG):
+                self.logger.debug(
+                    f"Profile generation completed in {profile_time:.2f}s"
+                )
+
         if snp_sets:
             best_set_start = time.time()
             best_set_index, best_snp_set, best_entropy = (
@@ -207,13 +223,23 @@ class MDSearchApp:
             )
             copy_time = time.time() - copy_start
 
+            best_set_path = self.config.output_prefix / "best_set.vcf"
             if self.logger.isEnabledFor(logging.INFO):
-                best_set_path = self.config.output_prefix / "best_set.vcf"
                 self.logger.info(f"Best SNP set copied to: {best_set_path}")
+
+            # Generate human-readable profile for the best set
+            best_profile_start = time.time()
+            best_profile_path = self.snp_profile_writer.write_best_set_profile(
+                self.config.output_prefix, best_set_path, vcf_data, None, None
+            )
+            best_profile_time = time.time() - best_profile_start
+
+            if self.logger.isEnabledFor(logging.INFO):
+                self.logger.info(f"Best set profile generated: {best_profile_path}")
 
             if self.logger.isEnabledFor(logging.DEBUG):
                 self.logger.debug(
-                    f"Best set identification: {best_set_time:.2f}s, copying: {copy_time:.2f}s"
+                    f"Best set identification: {best_set_time:.2f}s, copying: {copy_time:.2f}s, profile: {best_profile_time:.2f}s"
                 )
 
         self.memory_monitor.check_memory_and_warn("processing complete")
