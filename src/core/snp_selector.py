@@ -43,7 +43,18 @@ class SNPSelector:
     def select_first_discriminatory_snp(
         self, vcf_data: VCFData, excluded: Optional[Set[str]] = None
     ) -> str:
-        """Select SNP with highest entropy score not in excluded; tie-break by SNP ID."""
+        """Select SNP with highest entropy score not in excluded; tie-break by SNP ID.
+        
+        Args:
+            vcf_data: VCF data containing SNP genotypes and cached scores
+            excluded: Set of SNP IDs to exclude from selection
+            
+        Returns:
+            SNP ID with highest entropy score
+            
+        Raises:
+            BuildError: If no SNPs available after exclusions
+        """
         excluded = excluded or set()
         candidates = []
 
@@ -73,7 +84,19 @@ class SNPSelector:
         min_distance: int,
         excluded: Optional[Set[str]] = None,
     ) -> List[str]:
-        """Greedily build initial SNP set maximizing entropy score under exclusions."""
+        """Greedily build initial SNP set maximizing entropy score under exclusions.
+        
+        Args:
+            vcf_data: VCF data containing SNP genotypes and cached scores
+            min_distance: Minimum Hamming distance requirement between samples
+            excluded: Set of SNP IDs to exclude from selection
+            
+        Returns:
+            List of SNP IDs forming the discriminatory set
+            
+        Raises:
+            BuildError: If not enough SNPs available to meet distance requirement
+        """
         excluded = excluded or set()
         current_snp_set: List[str] = []
         current_snps_geno: List[List[float]] = []
@@ -128,7 +151,15 @@ class SNPSelector:
     def get_snp_entropy_scores(
         self, vcf_data: VCFData, excluded: Optional[Set[str]] = None
     ) -> List[tuple[str, float, float, float]]:
-        """Get entropy scores for all SNPs in the dataset."""
+        """Get entropy scores for all SNPs in the dataset.
+        
+        Args:
+            vcf_data: VCF data containing SNP genotypes and cached scores
+            excluded: Set of SNP IDs to exclude from scoring
+            
+        Returns:
+            List of tuples: (snp_id, entropy_score, maf, raw_entropy)
+        """
         excluded = excluded or set()
         scores = []
 
@@ -153,7 +184,17 @@ class SNPSelector:
         min_distance: int,
         log_start: bool = True,
     ) -> List[str]:
-        """Greedy backward elimination preserving minimal distance constraint."""
+        """Greedy backward elimination preserving minimal distance constraint.
+        
+        Args:
+            snp_set: Initial list of SNP IDs to optimize
+            vcf_data: VCF data containing SNP genotypes
+            min_distance: Minimum Hamming distance requirement to maintain
+            log_start: Whether to log the start of elimination process
+            
+        Returns:
+            Optimized list of SNP IDs maintaining minimum distance
+        """
         if log_start and self.logger.isEnabledFor(logging.INFO):
             self.logger.info("Backward one-by-one elimination...")
             self.logger.info(
@@ -245,7 +286,16 @@ class SNPSelector:
         min_distance: int,
         n_sets: Union[int, str],
     ) -> List[List[str]]:
-        """Find all perfectly orthogonal (disjoint) minimal discriminating SNP sets."""
+        """Find all perfectly orthogonal (disjoint) minimal discriminating SNP sets.
+        
+        Args:
+            vcf_data: VCF data containing SNP genotypes and cached scores
+            min_distance: Minimum Hamming distance requirement between samples
+            n_sets: Number of sets to find (0 or "unlimited" for all possible)
+            
+        Returns:
+            List of SNP sets, each containing SNP IDs for one discriminatory set
+        """
         n_sets_int = int(n_sets) if isinstance(n_sets, str) else n_sets
 
         if self.logger.isEnabledFor(logging.INFO):

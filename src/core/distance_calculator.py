@@ -35,7 +35,15 @@ class DistanceCalculator:
         self.shutdown_checker = shutdown_checker
 
     def calc_min_distance(self, snps: List[List[float]], *, log: bool = True) -> float:
-        """Return minimal pairwise Hamming distance across samples for given SNPs."""
+        """Return minimal pairwise Hamming distance across samples for given SNPs.
+        
+        Args:
+            snps: List of SNP genotype lists, each containing sample values
+            log: Whether to log progress information
+            
+        Returns:
+            Minimum Hamming distance between any pair of samples
+        """
         if log and self.logger.isEnabledFor(logging.INFO):
             self.logger.info(
                 f"Calculate pairwise distance based on {len(snps)} SNPs..."
@@ -121,7 +129,16 @@ class DistanceCalculator:
     def calc_distance_for_snp_ids(
         self, snp_ids: List[str], snp_data: SNPDataMapping, *, log: bool = True
     ) -> float:
-        """Helper computing minimal distance for a list of SNP IDs."""
+        """Helper computing minimal distance for a list of SNP IDs.
+        
+        Args:
+            snp_ids: List of SNP IDs to compute distance for
+            snp_data: Mapping from SNP ID to SNPData objects
+            log: Whether to log progress information
+            
+        Returns:
+            Minimum Hamming distance between any pair of samples
+        """
         if not snp_ids:
             return 0.0
         genos = [snp_data[sid].genotypes for sid in snp_ids]

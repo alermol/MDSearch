@@ -68,7 +68,19 @@ class VCFParser:
     def parse_and_validate(
         self, vcf_path: Path, ploidy: int, convert_het: bool
     ) -> VCFData:
-        """Parse VCF file and return structured data (loads all SNPs into memory)."""
+        """Parse VCF file and return structured data (loads all SNPs into memory).
+        
+        Args:
+            vcf_path: Path to VCF file to parse
+            ploidy: Ploidy level for genotype interpretation
+            convert_het: Whether to convert heterozygous calls to missing values
+            
+        Returns:
+            VCFData object containing parsed headers, genotypes, and cached scores
+            
+        Raises:
+            SystemExit: If VCF validation fails (missing headers, malformed data)
+        """
         headers = self._validate_headers(vcf_path)
 
         snp_genotypes, snp_maf_cache, snp_entropy_cache = self._validate_variants(

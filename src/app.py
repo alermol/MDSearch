@@ -75,7 +75,14 @@ class MDSearchApp:
         self.memory_monitor.check_memory_and_warn("initialization")
 
     def run(self) -> None:
-        """Execute the complete MDSearch pipeline."""
+        """Execute the complete MDSearch pipeline.
+        
+        Performs the full SNP selection workflow:
+        1. Index verification
+        2. VCF parsing and validation
+        3. SNP set generation
+        4. Output file creation
+        """
         start_time = time.time()
 
         try:

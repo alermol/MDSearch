@@ -12,7 +12,14 @@ class JsonFormatter(logging.Formatter):
     """Custom JSON formatter for structured logging."""
 
     def format(self, record: logging.LogRecord) -> str:
-        """Format log record as JSON string."""
+        """Format log record as JSON string.
+        
+        Args:
+            record: LogRecord to format
+            
+        Returns:
+            JSON-formatted log string
+        """
         payload = {
             "level": record.levelname,
             "message": record.getMessage(),
@@ -27,7 +34,17 @@ def setup_logger(
     format_type: str = "text",
     verbose: bool = True,
 ) -> logging.Logger:
-    """Configure and return a logger with specified settings."""
+    """Configure and return a logger with specified settings.
+    
+    Args:
+        name: Logger name
+        level: Logging level (DEBUG, INFO, WARNING, ERROR) or None for default
+        format_type: Output format: "text" or "json"
+        verbose: Whether to use verbose logging (INFO vs WARNING default)
+        
+    Returns:
+        Configured logger instance
+    """
     logger = logging.getLogger(name)
 
     if not logger.handlers:

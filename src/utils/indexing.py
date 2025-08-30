@@ -11,7 +11,14 @@ __all__ = ["ensure_variant_index", "infer_format_letter"]
 
 
 def infer_format_letter(path: Path) -> str:
-    """Infer bcftools-style format letter from filename."""
+    """Infer bcftools-style format letter from filename.
+    
+    Args:
+        path: Path to variant file
+        
+    Returns:
+        Format letter: 'v' for VCF, 'z' for VCF.GZ, 'b' for BCF, 'u' for uncompressed BCF
+    """
     name = str(path)
     if name.endswith(".vcf.gz") or name.endswith(".vcfz"):
         return "z"
@@ -34,7 +41,13 @@ def infer_format_letter(path: Path) -> str:
 def ensure_variant_index(
     vpath: Path, fmt_letter: Optional[str], logger: Optional[logging.Logger]
 ) -> None:
-    """Ensure an index exists for the given variant file."""
+    """Ensure an index exists for the given variant file.
+    
+    Args:
+        vpath: Path to variant file (VCF/BCF)
+        fmt_letter: Format identifier (v, z, u, b) or None for auto-detection
+        logger: Optional logger instance for progress messages
+    """
     fmt = fmt_letter or "auto"
     if fmt == "auto":
         fmt = infer_format_letter(vpath)
@@ -58,7 +71,15 @@ def ensure_variant_index(
 
 
 def _run_bcftools_index(vpath: Path, logger: Optional[logging.Logger]) -> None:
-    """Run bcftools index --csi on the given file, raising on failure."""
+    """Run bcftools index --csi on the given file, raising on failure.
+    
+    Args:
+        vpath: Path to variant file to index
+        logger: Optional logger instance for error messages
+        
+    Raises:
+        RuntimeError: If bcftools is not found or indexing fails
+    """
     cmd = ["bcftools", "index", "--csi", "-f", str(vpath)]
     try:
         res = subprocess.run(

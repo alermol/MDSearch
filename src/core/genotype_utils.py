@@ -16,7 +16,15 @@ __all__ = [
 
 
 def extract_gt(format_field: str, sample_field: str) -> str:
-    """Extract GT subfield from sample field based on format specification."""
+    """Extract GT subfield from sample field based on format specification.
+    
+    Args:
+        format_field: VCF FORMAT field string (e.g., "GT:DP:AD")
+        sample_field: Sample-specific data string (e.g., "0/1:10:5,5")
+        
+    Returns:
+        GT value string or "." if GT not found or invalid
+    """
     if "GT" not in format_field:
         return "."
     gt_index = format_field.split(":").index("GT")
@@ -25,7 +33,16 @@ def extract_gt(format_field: str, sample_field: str) -> str:
 
 
 def gt_to_value(gt: str, ploidy: Optional[int], convert_het: Optional[bool]) -> float:
-    """Convert GT string to numeric value based on ploidy and het conversion."""
+    """Convert GT string to numeric value based on ploidy and het conversion.
+    
+    Args:
+        gt: Genotype string (e.g., "0/1", "1|0", "0/0")
+        ploidy: Ploidy level (e.g., 2 for diploid, 1 for haploid)
+        convert_het: Whether to convert heterozygous calls to missing values
+        
+    Returns:
+        Numeric genotype value (0.0, 0.5, 1.0) or np.nan for missing/invalid
+    """
     if "." in gt:
         return np.nan
     tokens = [t for t in gt.replace("|", "/").split("/") if t != ""]
@@ -46,7 +63,15 @@ def gt_to_value(gt: str, ploidy: Optional[int], convert_het: Optional[bool]) -> 
 
 
 def calculate_maf(geno: List[float], ploidy: Optional[int]) -> float:
-    """Calculate Minor Allele Frequency (MAF) from genotype values."""
+    """Calculate Minor Allele Frequency (MAF) from genotype values.
+    
+    Args:
+        geno: List of genotype values (0.0, 0.5, 1.0, or np.nan for missing)
+        ploidy: Ploidy level (e.g., 2 for diploid, 1 for haploid)
+        
+    Returns:
+        Minor allele frequency as float between 0.0 and 0.5
+    """
     if ploidy is None:
         return 0.0
 
@@ -71,7 +96,14 @@ def calculate_maf(geno: List[float], ploidy: Optional[int]) -> float:
 
 
 def is_het(gt: str) -> bool:
-    """Return True if GT subfield represents a heterozygous call."""
+    """Return True if GT subfield represents a heterozygous call.
+    
+    Args:
+        gt: Genotype string (e.g., "0/1", "1|0", "0/0")
+        
+    Returns:
+        True if heterozygous, False otherwise
+    """
     if not gt or gt == ".":
         return False
     alleles = [a for a in gt.replace("|", "/").split("/") if a != ""]
@@ -79,7 +111,14 @@ def is_het(gt: str) -> bool:
 
 
 def calculate_shannon_entropy(chromosome_counts: Dict[str, int]) -> float:
-    """Calculate Shannon entropy for chromosome distribution."""
+    """Calculate Shannon entropy for chromosome distribution.
+    
+    Args:
+        chromosome_counts: Dictionary mapping chromosome names to SNP counts
+        
+    Returns:
+        Shannon entropy value (0.0 if no variation, higher for more balanced distribution)
+    """
     if not chromosome_counts:
         return 0.0
 
@@ -97,7 +136,14 @@ def calculate_shannon_entropy(chromosome_counts: Dict[str, int]) -> float:
 
 
 def calculate_snp_information_entropy(genotypes: List[float]) -> float:
-    """Calculate Shannon entropy for SNP information content based on genotype distribution."""
+    """Calculate Shannon entropy for SNP information content based on genotype distribution.
+    
+    Args:
+        genotypes: List of genotype values (0.0, 0.5, 1.0, or np.nan for missing)
+        
+    Returns:
+        Shannon entropy value measuring genotype distribution diversity
+    """
     if not genotypes:
         return 0.0
 
@@ -142,7 +188,18 @@ def calculate_snp_entropy_score(
     weight_maf: float = 0.3,
     entropy: Optional[float] = None,
 ) -> float:
-    """Calculate combined SNP scoring using Shannon entropy and MAF."""
+    """Calculate combined SNP scoring using Shannon entropy and MAF.
+    
+    Args:
+        genotypes: List of genotype values (0.0, 0.5, 1.0, or np.nan for missing)
+        maf: Minor allele frequency value
+        weight_entropy: Weight for entropy component (default: 0.7)
+        weight_maf: Weight for MAF component (default: 0.3)
+        entropy: Pre-computed entropy value (optional, computed if None)
+        
+    Returns:
+        Combined score between 0.0 and 1.0 (higher is better)
+    """
     if not genotypes:
         return 0.0
 

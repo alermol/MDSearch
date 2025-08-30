@@ -35,12 +35,20 @@ class MemoryMonitor:
         )
 
     def get_memory_usage_mb(self) -> float:
-        """Get current memory usage in MB."""
+        """Get current memory usage in MB.
+        
+        Returns:
+            Current RSS memory usage in megabytes
+        """
         rss: int = self.process.memory_info().rss
         return float(rss / 1024 / 1024)
 
     def get_peak_memory_usage_mb(self) -> float:
-        """Get peak memory usage in MB during the process lifetime."""
+        """Get peak memory usage in MB during the process lifetime.
+        
+        Returns:
+            Peak RSS memory usage in megabytes since process start
+        """
         try:
             memory_info = self.process.memory_info()
             peak_bytes = memory_info.peak_rss
@@ -50,12 +58,20 @@ class MemoryMonitor:
         return float(peak_bytes / 1024 / 1024)
 
     def get_available_memory_mb(self) -> float:
-        """Get available system memory in MB."""
+        """Get available system memory in MB.
+        
+        Returns:
+            Available system memory in megabytes
+        """
         available: int = psutil.virtual_memory().available
         return float(available / 1024 / 1024)
 
     def check_memory_and_warn(self, operation: str = "operation") -> None:
-        """Check current memory usage and warn if approaching limits."""
+        """Check current memory usage and warn if approaching limits.
+        
+        Args:
+            operation: Description of the operation being monitored
+        """
         current_mb = self.get_memory_usage_mb()
         available_mb = self.get_available_memory_mb()
 
@@ -88,12 +104,24 @@ class MemoryMonitor:
             )
 
     def estimate_matrix_memory_mb(self, num_snps: int, num_samples: int) -> float:
-        """Estimate memory usage for genotype matrix in MB."""
+        """Estimate memory usage for genotype matrix in MB.
+        
+        Args:
+            num_snps: Number of SNPs in the dataset
+            num_samples: Number of samples in the dataset
+            
+        Returns:
+            Estimated memory usage in megabytes for genotype matrix
+        """
         matrix_bytes = num_snps * num_samples * 8
         return matrix_bytes / 1024 / 1024
 
     def get_threshold_info(self) -> Dict[str, float]:
-        """Get current memory threshold information."""
+        """Get current memory threshold information.
+        
+        Returns:
+            Dictionary containing warning and critical threshold values
+        """
         return {
             "warning_threshold_mb": self.warning_threshold_mb,
             "critical_threshold_mb": self.critical_threshold_mb,
@@ -103,7 +131,12 @@ class MemoryMonitor:
         }
 
     def warn_for_large_dataset(self, num_snps: int, num_samples: int) -> None:
-        """Warn user about potential memory issues with large datasets."""
+        """Warn user about potential memory issues with large datasets.
+        
+        Args:
+            num_snps: Number of SNPs in the dataset
+            num_samples: Number of samples in the dataset
+        """
         estimated_mb = self.estimate_matrix_memory_mb(num_snps, num_samples)
         available_mb = self.get_available_memory_mb()
 
@@ -128,12 +161,19 @@ class MemoryMonitor:
             )
 
     def force_garbage_collection(self) -> None:
-        """Force garbage collection to free up memory."""
+        """Force garbage collection to free up memory.
+        
+        Triggers Python's garbage collector to reclaim unused memory.
+        """
         gc.collect()
         self.logger.debug("Forced garbage collection completed")
 
     def get_memory_summary(self) -> Dict[str, float]:
-        """Get comprehensive memory usage summary."""
+        """Get comprehensive memory usage summary.
+        
+        Returns:
+            Dictionary containing current, peak, available, and threshold memory values
+        """
         return {
             "current_mb": self.get_memory_usage_mb(),
             "peak_mb": self.get_peak_memory_usage_mb(),

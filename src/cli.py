@@ -17,7 +17,12 @@ _shutdown_requested = False
 
 
 def _signal_handler(signum: int, frame: object) -> None:
-    """Handle signals for graceful shutdown."""
+    """Handle signals for graceful shutdown.
+    
+    Args:
+        signum: Signal number received
+        frame: Current stack frame (unused)
+    """
     global _shutdown_requested
     if signum == signal.SIGINT:
         print("\nReceived interrupt signal (Ctrl+C). Shutting down gracefully...")
@@ -29,12 +34,20 @@ def _signal_handler(signum: int, frame: object) -> None:
 
 
 def is_shutdown_requested() -> bool:
-    """Check if graceful shutdown was requested."""
+    """Check if graceful shutdown was requested.
+    
+    Returns:
+        True if shutdown was requested via signal, False otherwise
+    """
     return _shutdown_requested
 
 
 def _get_git_commit() -> str:
-    """Return short git commit hash if available, else 'unknown'."""
+    """Return short git commit hash if available, else 'unknown'.
+    
+    Returns:
+        Short git commit hash or 'unknown' if git not available
+    """
     try:
         res = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -49,7 +62,11 @@ def _get_git_commit() -> str:
 
 
 def _build_version_string() -> str:
-    """Compose version string with build and runtime info."""
+    """Compose version string with build and runtime info.
+    
+    Returns:
+        Formatted version string with commit hash and Python version
+    """
     commit = _get_git_commit()
     py = platform.python_version()
     return f"MDSearch {__version__} (commit hash {commit})\nPython {py}"

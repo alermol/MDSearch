@@ -21,5 +21,15 @@ import importlib
 def ensure_variant_index(
     vpath: Path, fmt_letter: Optional[str], logger: Optional[logging.Logger]
 ) -> None:
+    """Ensure an index exists for the given variant file.
+    
+    This is a convenience function that imports and calls the actual implementation
+    from the indexing module to avoid circular imports.
+    
+    Args:
+        vpath: Path to the variant file (VCF/BCF)
+        fmt_letter: Format identifier (v, z, u, b) or None for auto-detection
+        logger: Optional logger instance for progress messages
+    """
     module = importlib.import_module(f"{__package__}.indexing")
     module.ensure_variant_index(vpath, fmt_letter, logger)
