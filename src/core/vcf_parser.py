@@ -69,15 +69,12 @@ class VCFParser:
         self, vcf_path: Path, ploidy: int, convert_het: bool
     ) -> VCFData:
         """Parse VCF file and return structured data (loads all SNPs into memory)."""
-        # First pass: validate headers and count samples
         headers = self._validate_headers(vcf_path)
 
-        # Second pass: parse and validate data lines
         snp_genotypes, snp_maf_cache, snp_entropy_cache = self._validate_variants(
             vcf_path, headers, ploidy, convert_het
         )
 
-        # Check memory usage after VCF parsing and warn for large datasets
         self.memory_monitor.check_memory_and_warn("VCF parsing")
         self.memory_monitor.warn_for_large_dataset(
             len(snp_genotypes), len(headers.samples)
@@ -95,10 +92,8 @@ class VCFParser:
         try:
             with pysam.VariantFile(str(vcf_path)) as vf:
                 samples = list(vf.header.samples)
-                # pysam provides header version via .header.version in newer releases
                 fileformat_found = True if getattr(vf.header, "version", None) else True
 
-                # Extract contig information from header
                 contigs = [str(contig) for contig in vf.header.contigs]
 
                 if len(samples) < 2:
@@ -123,14 +118,19 @@ class VCFParser:
         snp_maf_cache: Dict[str, float] = {}
         snp_entropy_cache: Dict[str, float] = {}
 
+        if self.logger.isEnabledFor(logging.INFO):
+            self.logger.info(
+                f"Parsing VCF variants with {len(headers.samples)} samples, ploidy={ploidy}"
+            )
+            if convert_het:
+                self.logger.info("Converting heterozygous calls to missing values")
+
         with pysam.VariantFile(str(vcf_path)) as vf:
             line_number = 0
             for rec in vf:
                 line_number += 1
-                # Skip header pseudo-lines; pysam yields only records
                 data_line_count += 1
 
-                # Check for graceful shutdown request
                 if self.shutdown_checker and self.shutdown_checker():
                     if self.logger.isEnabledFor(logging.INFO):
                         self.logger.info(
@@ -152,14 +152,12 @@ class VCFParser:
                     )
                 seen_ids.add(snp_id)
 
-                # ALT-based multiallelic detection
                 if rec.alts and len(rec.alts) > 1:
                     sys.exit(
                         f"ERROR: Line {line_number}: Multiallelic site detected (ALT='{','.join(rec.alts)}'). "
                         "Filter or split multiallelic sites before processing."
                     )
 
-                # Validate sample count
                 if len(rec.samples) != len(headers.samples):
                     sys.exit(
                         f"ERROR: Line {line_number}: Invalid number of samples. "
@@ -175,10 +173,8 @@ class VCFParser:
                         gt = "."
                     else:
                         gt_parts = ["." if g is None else str(g) for g in gt_tuple]
-                        # Assume unphased representation for numeric conversion
                         gt = "/".join(gt_parts)
 
-                    # Detect multiallelic indices in GT
                     try:
                         alleles = [
                             int(x)
@@ -209,7 +205,11 @@ class VCFParser:
                 snp_maf_cache[snp_id] = maf
                 snp_entropy_cache[snp_id] = entropy
 
-        # Final validation
+                if data_line_count % 10000 == 0 and self.logger.isEnabledFor(
+                    logging.INFO
+                ):
+                    self.logger.info(f"Processed {data_line_count} variants...")
+
         if data_line_count == 0:
             sys.exit(
                 "ERROR: No data lines found in VCF. "
@@ -220,6 +220,30 @@ class VCFParser:
             self.logger.info(
                 f"VCF validation complete: {data_line_count} variants, "
                 f"{len(headers.samples)} samples processed successfully."
+            )
+
+        if self.logger.isEnabledFor(logging.DEBUG):
+            maf_values = list(snp_maf_cache.values())
+            entropy_values = list(snp_entropy_cache.values())
+            chrom_counts = {}
+            for snp_data in snp_genotypes.values():
+                chrom_counts[snp_data.chromosome] = (
+                    chrom_counts.get(snp_data.chromosome, 0) + 1
+                )
+
+            self.logger.debug("VCF statistics:")
+            self.logger.debug(
+                f"  Chromosomes: {len(chrom_counts)} ({', '.join(sorted(chrom_counts.keys()))})"
+            )
+            self.logger.debug(
+                f"  MAF range: {min(maf_values):.3f} - {max(maf_values):.3f}"
+            )
+            self.logger.debug(
+                f"  Entropy range: {min(entropy_values):.3f} - {max(entropy_values):.3f}"
+            )
+            self.logger.debug(f"  Average MAF: {sum(maf_values) / len(maf_values):.3f}")
+            self.logger.debug(
+                f"  Average entropy: {sum(entropy_values) / len(entropy_values):.3f}"
             )
 
         return snp_genotypes, snp_maf_cache, snp_entropy_cache

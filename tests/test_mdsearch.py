@@ -234,7 +234,6 @@ def test_total_snp_count_option_is_ignored(tmp_path: Path):
     produced = get_mdss_vcf_path(out_prefix, 1)
     save_out_prefix_vcfs(out_prefix, subdir="ts")
 
-    # Validate: total_snps is ignored; minimal size stays 2
     ids = get_snp_ids(produced)
     assert len(ids) == 2
     assert set(["A", "B"]).issubset(ids)
@@ -243,7 +242,6 @@ def test_total_snp_count_option_is_ignored(tmp_path: Path):
 
 def test_min_hamming_distance_requirement_all_pairs(tmp_path: Path):
     samples = ["S1", "S2", "S3", "S4"]
-    # Minimal set of 3 SNPs reaching min pairwise distance >=2 using codewords 000, 011, 101, 110
     variants = [
         {
             "chrom": "1",
@@ -252,7 +250,7 @@ def test_min_hamming_distance_requirement_all_pairs(tmp_path: Path):
             "ref": "A",
             "alt": "T",
             "genotypes": ["0/0", "0/0", "1/1", "1/1"],
-        },  # bit1
+        },
         {
             "chrom": "1",
             "pos": 200,
@@ -260,7 +258,7 @@ def test_min_hamming_distance_requirement_all_pairs(tmp_path: Path):
             "ref": "A",
             "alt": "T",
             "genotypes": ["0/0", "1/1", "0/0", "1/1"],
-        },  # bit2
+        },
         {
             "chrom": "1",
             "pos": 300,
@@ -268,8 +266,7 @@ def test_min_hamming_distance_requirement_all_pairs(tmp_path: Path):
             "ref": "A",
             "alt": "T",
             "genotypes": ["0/0", "1/1", "1/1", "0/0"],
-        },  # bit3
-        # Add noise with het and missing
+        },
         {
             "chrom": "1",
             "pos": 400,
@@ -304,10 +301,7 @@ def test_min_hamming_distance_requirement_all_pairs(tmp_path: Path):
 
 def test_convert_het_handling_ignores_heterozygotes(tmp_path: Path):
     samples = ["S1", "S2", "S3", "S4"]
-    # Design where one SNP Y is heterozygous for several samples and thus should not contribute when -ch is used.
-    # Z1 and Z2 form the minimal set when ignoring hets.
     variants = [
-        # Heterozygous-heavy SNP (ignored when -ch)
         {
             "chrom": "1",
             "pos": 150,
@@ -316,7 +310,6 @@ def test_convert_het_handling_ignores_heterozygotes(tmp_path: Path):
             "alt": "T",
             "genotypes": ["0/1", "0/1", "1/1", "./."],
         },
-        # Discriminative core under -ch (all homozygous patterns)
         {
             "chrom": "1",
             "pos": 210,
@@ -911,10 +904,8 @@ def test_writer_preserves_format_multifield_records(tmp_path: Path):
     )
     produced = get_mdss_vcf_path(out_prefix, 1)
     assert produced.exists()
-    # Validate DP/GQ schema preserved for selected records
     text = Path(produced).read_text().splitlines()
     records = [line for line in text if not line.startswith("#")]
-    # Check record for Z1 or Z2 exists and has GT:DP:GQ format
     z = [line for line in records if line.split("\t")[2] in {"Z1", "Z2"}][0]
     cols = z.split("\t")
     assert cols[8] == "GT:DP:GQ"
@@ -958,12 +949,9 @@ def test_summary_tsv_emitted_and_correct(tmp_path: Path):
         min_dist=1,
         n_sets=1,
     )
-    # Save artifacts if enabled
     save_out_prefix_vcfs(out_prefix, subdir="summary")
-    # Validate TSV exists in output directory
     summary_path = out_prefix / "summary.tsv"
     assert summary_path.exists()
-    # Read and validate content
     lines = summary_path.read_text().strip().splitlines()
     assert lines[0].split("\t") == [
         "set_index",
@@ -972,7 +960,6 @@ def test_summary_tsv_emitted_and_correct(tmp_path: Path):
         "min_distance",
         "shannon_entropy",
     ]
-    # Only one set expected; minimal set is A,B with min_distance >=1
     cols = lines[1].split("\t")
     assert cols[0] == "1"
     assert cols[1] == "minimal_set_1.vcf"
@@ -1005,7 +992,6 @@ def test_weight_parameters_work_correctly(tmp_path: Path):
     write_vcf(orig, samples, variants)
     out_prefix = tmp_path / "out_weights"
 
-    # Test with custom weights
     run_mdsearch(
         orig,
         out_prefix,

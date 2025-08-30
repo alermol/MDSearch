@@ -45,10 +45,8 @@ class StructureInfoWriter:
         """
         structure_info_path = output_prefix / "output_structure.txt"
 
-        # Get current timestamp
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
 
-        # Prepare structure info content
         lines = [
             "MDSearch Output Directory Structure",
             "===================================",
@@ -65,7 +63,6 @@ class StructureInfoWriter:
             "  This subdirectory contains individual VCF files for each SNP set:",
         ]
 
-        # Add details for each SNP set
         for i, snp_set in enumerate(snp_sets, 1):
             file_extension = self._get_vcf_extension()
             filename = f"minimal_set_{i}.{file_extension}"
@@ -115,7 +112,6 @@ class StructureInfoWriter:
             ]
         )
 
-        # Write to file
         with open(structure_info_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
 

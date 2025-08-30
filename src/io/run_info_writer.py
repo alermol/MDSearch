@@ -57,7 +57,6 @@ class RunInfoWriter:
         """
         run_info_path = output_prefix / "run_info.txt"
 
-        # Get git commit hash if available
         try:
             git_commit = (
                 subprocess.run(
@@ -72,16 +71,13 @@ class RunInfoWriter:
         except Exception:
             git_commit = "unknown"
 
-        # Get current timestamp
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
 
-        # Calculate execution time if start time provided
         execution_time_info = ""
         if start_time is not None:
             end_time = time.time()
             execution_seconds = end_time - start_time
 
-            # Format execution time in human-readable format
             if execution_seconds < 60:
                 execution_time_info = f"{execution_seconds:.2f} seconds"
             elif execution_seconds < 3600:
@@ -96,14 +92,12 @@ class RunInfoWriter:
                     f"{hours} hours {minutes} minutes {seconds:.1f} seconds"
                 )
 
-        # Get comprehensive memory information (after run completion)
         memory_summary = self.memory_monitor.get_memory_summary()
         threshold_info = self.memory_monitor.get_threshold_info()
         estimated_matrix_mb = self.memory_monitor.estimate_matrix_memory_mb(
             len(vcf_data.snp_genotypes), len(vcf_data.headers.samples)
         )
 
-        # Prepare run info content
         lines = [
             "MDSearch Run Information",
             "=======================",
@@ -116,7 +110,6 @@ class RunInfoWriter:
             f"Run timestamp: {timestamp}",
         ]
 
-        # Add execution time if available
         if execution_time_info:
             lines.extend(
                 [
@@ -162,11 +155,9 @@ class RunInfoWriter:
             ]
         )
 
-        # Add details for each SNP set
         for i, snp_set in enumerate(snp_sets, 1):
             lines.append(f"  Set {i}: {len(snp_set)} SNPs")
 
-        # Write to file
         with open(run_info_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
 

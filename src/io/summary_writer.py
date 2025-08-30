@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import List, Tuple
 from dataclasses import dataclass
+import logging
 
 from ..core.distance_calculator import DistanceCalculator
 from ..core.vcf_parser import VCFData
@@ -58,6 +59,7 @@ class SummaryWriter:
             >>> writer = SummaryWriter(distance_calc)
         """
         self.distance_calc = distance_calc
+        self.logger = logging.getLogger(__name__)
 
     def find_best_snp_set(
         self,
@@ -95,22 +97,18 @@ class SummaryWriter:
         best_entropy = 0.0
 
         for si, s in enumerate(snp_sets, start=1):
-            # Calculate Shannon entropy for chromosome distribution
             chromosome_counts: Counter[str] = Counter()
 
-            # Count SNPs per chromosome in the current set
             for snp_id in s:
                 if snp_id in vcf_data.snp_genotypes:
                     chromosome_counts[vcf_data.snp_genotypes[snp_id].chromosome] += 1
 
-            # Add all chromosomes from VCF with 0 count if not present
             for chrom in vcf_data.headers.contigs:
                 if chrom not in chromosome_counts:
                     chromosome_counts[chrom] = 0
 
             current_entropy = calculate_shannon_entropy(chromosome_counts)
 
-            # Update best set if current entropy is higher
             if current_entropy > best_entropy:
                 best_entropy = current_entropy
                 best_snp_set = s
@@ -150,6 +148,12 @@ class SummaryWriter:
             >>> # 1	output_1.vcf	2	3	1.000
             >>> # 2	output_2.vcf	2	4	1.585
         """
+        if self.logger and self.logger.isEnabledFor(logging.INFO):
+            self.logger.info(
+                f"Generating summary statistics for {len(snp_sets)} SNP set(s)"
+            )
+            self.logger.info(f"Summary will be written to: {output_path}")
+
         header = [
             "set_index",
             "output_vcf",
@@ -161,26 +165,31 @@ class SummaryWriter:
         lines = ["\t".join(header)]
 
         for si, s in enumerate(snp_sets, start=1):
+            if self.logger and self.logger.isEnabledFor(logging.DEBUG):
+                self.logger.debug(f"Processing SNP set #{si} with {len(s)} SNPs")
+
             out_vcf = f"minimal_set_{si}.vcf"
             min_d = self.distance_calc.calc_distance_for_snp_ids(
                 s, vcf_data.snp_genotypes
             )
 
-            # Calculate Shannon entropy for chromosome distribution
-            # Include all chromosomes from VCF, even those with 0 SNPs in this set
             chromosome_counts: Counter[str] = Counter()
 
-            # Count SNPs per chromosome in the current set
             for snp_id in s:
                 if snp_id in vcf_data.snp_genotypes:
                     chromosome_counts[vcf_data.snp_genotypes[snp_id].chromosome] += 1
 
-            # Add all chromosomes from VCF with 0 count if not present
             for chrom in vcf_data.headers.contigs:
                 if chrom not in chromosome_counts:
                     chromosome_counts[chrom] = 0
 
             shannon_entropy = calculate_shannon_entropy(chromosome_counts)
+
+            if self.logger and self.logger.isEnabledFor(logging.DEBUG):
+                self.logger.debug(
+                    f"Set #{si}: distance={min_d}, entropy={shannon_entropy:.3f}, "
+                    f"chromosomes={dict(chromosome_counts)}"
+                )
 
             row = [
                 str(si),
@@ -194,3 +203,8 @@ class SummaryWriter:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")
+
+        if self.logger and self.logger.isEnabledFor(logging.INFO):
+            self.logger.info(
+                f"Summary statistics written successfully to: {output_path}"
+            )

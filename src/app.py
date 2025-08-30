@@ -55,7 +55,6 @@ class MDSearchApp:
         )
         self.memory_monitor = MemoryMonitor(self.logger)
 
-        # Initialize components
         self.vcf_parser = VCFParser(self.memory_monitor, self.logger, shutdown_checker)
         self.distance_calc = DistanceCalculator(
             self.memory_monitor, self.logger, shutdown_checker=shutdown_checker
@@ -68,44 +67,52 @@ class MDSearchApp:
             weight_entropy=self.config.weight_entropy,
             weight_maf=self.config.weight_maf,
         )
-        self.vcf_writer = VCFWriter()
+        self.vcf_writer = VCFWriter(self.logger)
         self.summary_writer = SummaryWriter(self.distance_calc)
         self.run_info_writer = RunInfoWriter(self.memory_monitor)
         self.structure_info_writer = StructureInfoWriter(self.config.output_format)
 
-        # Initial memory check
         self.memory_monitor.check_memory_and_warn("initialization")
 
     def run(self) -> None:
         """Execute the complete MDSearch pipeline."""
         start_time = time.time()
 
-        # Ensure index exists for compressed inputs
         try:
+            index_start = time.time()
             ensure_variant_index(
                 self.config.input_vcf, self.config.input_format, self.logger
             )
+            index_time = time.time() - index_start
+            if self.logger.isEnabledFor(logging.DEBUG):
+                self.logger.debug(f"Index verification completed in {index_time:.2f}s")
         except Exception as e:
             if self.logger.isEnabledFor(logging.ERROR):
                 self.logger.error(f"Failed to ensure variant index: {e}")
             raise
 
-        # Parse and validate VCF
+        parse_start = time.time()
         vcf_data = self.vcf_parser.parse_and_validate(
             self.config.input_vcf, self.config.ploidy, self.config.convert_het
         )
+        parse_time = time.time() - parse_start
+        if self.logger.isEnabledFor(logging.INFO):
+            self.logger.info(f"VCF parsing completed in {parse_time:.2f}s")
 
-        # Search for optimal SNP sets
+        search_start = time.time()
         snp_sets = self.snp_selector.search_optimal_sets(
             vcf_data,
             self.config.min_distance,
             self.config.n_sets,
         )
+        search_time = time.time() - search_start
+        if self.logger.isEnabledFor(logging.INFO):
+            self.logger.info(f"SNP set search completed in {search_time:.2f}s")
 
-        # Write output files
         if self.logger.isEnabledFor(logging.INFO):
             self.logger.info("Writing selected SNPs in VCF...")
 
+        write_start = time.time()
         write_config = WriteConfig(
             ploidy=self.config.ploidy,
             convert_het=self.config.convert_het,
@@ -114,19 +121,25 @@ class MDSearchApp:
         self.vcf_writer.write_snp_sets(
             self.config.input_vcf, self.config.output_prefix, snp_sets, write_config
         )
+        write_time = time.time() - write_start
+        if self.logger.isEnabledFor(logging.INFO):
+            self.logger.info(f"VCF writing completed in {write_time:.2f}s")
 
         if self.logger.isEnabledFor(logging.INFO):
             self.logger.info("Done")
 
-        # Write summary
+        summary_start = time.time()
         summary_path = self.config.output_prefix / "summary.tsv"
         self.summary_writer.write_summary(
             snp_sets, self.config.output_prefix, summary_path, vcf_data
         )
+        summary_time = time.time() - summary_start
         if self.logger.isEnabledFor(logging.INFO):
             self.logger.info(f"Summary TSV written: {summary_path}")
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(f"Summary generation completed in {summary_time:.2f}s")
 
-        # Write run information
+        run_info_start = time.time()
         config_data = {
             "input_vcf": self.config.input_vcf,
             "input_format": self.config.input_format,
@@ -145,23 +158,32 @@ class MDSearchApp:
         run_info_path = self.run_info_writer.write_run_info(
             self.config.output_prefix, vcf_data, snp_sets, config_data, start_time
         )
+        run_info_time = time.time() - run_info_start
         if self.logger.isEnabledFor(logging.INFO):
             self.logger.info(f"Run information written to: {run_info_path}")
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(f"Run info writing completed in {run_info_time:.2f}s")
 
-        # Write output directory structure information
+        structure_start = time.time()
         structure_info_path = self.structure_info_writer.write_structure_info(
             self.config.output_prefix, snp_sets
         )
+        structure_time = time.time() - structure_start
         if self.logger.isEnabledFor(logging.INFO):
             self.logger.info(
                 f"Output structure information written to: {structure_info_path}"
             )
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(
+                f"Structure info writing completed in {structure_time:.2f}s"
+            )
 
-        # Find best SNP set and copy to best_set.vcf
         if snp_sets:
+            best_set_start = time.time()
             best_set_index, best_snp_set, best_entropy = (
                 self.summary_writer.find_best_snp_set(snp_sets, vcf_data)
             )
+            best_set_time = time.time() - best_set_start
 
             if self.logger.isEnabledFor(logging.INFO):
                 self.logger.info(
@@ -169,20 +191,44 @@ class MDSearchApp:
                     f"with Shannon entropy {best_entropy:.3f}"
                 )
 
-            # Copy best set to best_set.vcf
+            copy_start = time.time()
             self.vcf_writer.copy_snp_set_to_best_set(
                 self.config.input_vcf,
                 self.config.output_prefix,
                 best_snp_set,
                 write_config,
             )
+            copy_time = time.time() - copy_start
 
             if self.logger.isEnabledFor(logging.INFO):
                 best_set_path = self.config.output_prefix / "best_set.vcf"
                 self.logger.info(f"Best SNP set copied to: {best_set_path}")
 
-        # Final memory usage summary
+            if self.logger.isEnabledFor(logging.DEBUG):
+                self.logger.debug(
+                    f"Best set identification: {best_set_time:.2f}s, copying: {copy_time:.2f}s"
+                )
+
         self.memory_monitor.check_memory_and_warn("processing complete")
         if self.logger.isEnabledFor(logging.INFO):
             final_memory = self.memory_monitor.get_memory_usage_mb()
             self.logger.info(f"Final memory usage: {final_memory:.1f}MB")
+
+        total_time = time.time() - start_time
+        if self.logger.isEnabledFor(logging.INFO):
+            self.logger.info(f"Total execution time: {total_time:.2f}s")
+
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug("Performance breakdown:")
+            self.logger.debug(f"  Index verification: {index_time:.2f}s")
+            self.logger.debug(f"  VCF parsing: {parse_time:.2f}s")
+            self.logger.debug(f"  SNP set search: {search_time:.2f}s")
+            self.logger.debug(f"  VCF writing: {write_time:.2f}s")
+            self.logger.debug(f"  Summary generation: {summary_time:.2f}s")
+            self.logger.debug(f"  Run info writing: {run_info_time:.2f}s")
+            self.logger.debug(f"  Structure info: {structure_time:.2f}s")
+            if snp_sets:
+                self.logger.debug(
+                    f"  Best set operations: {best_set_time + copy_time:.2f}s"
+                )
+            self.logger.debug(f"  Total: {total_time:.2f}s")

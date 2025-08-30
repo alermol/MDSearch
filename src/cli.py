@@ -13,7 +13,6 @@ from . import __version__
 
 __all__ = ["parser_resolve_path", "create_parser", "main", "is_shutdown_requested"]
 
-# Global flag for graceful shutdown
 _shutdown_requested = False
 
 
@@ -99,7 +98,6 @@ def create_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    # Version flag (Misc)
     parser.add_argument(
         "-V",
         "--version",
@@ -108,7 +106,6 @@ def create_parser() -> argparse.ArgumentParser:
         help="Show program version, commit hash, and Python version, then exit",
     )
 
-    # Positional (required) arguments
     parser.add_argument(
         "ivcf",
         help="Input VCF file (bi-allelic, with SNP IDs)",
@@ -122,7 +119,6 @@ def create_parser() -> argparse.ArgumentParser:
         metavar="OUTPUT_FOLDER",
     )
 
-    # Group: Selection parameters
     grp_select = parser.add_argument_group(
         "Selection", "Core parameters controlling selection"
     )
@@ -172,7 +168,6 @@ def create_parser() -> argparse.ArgumentParser:
         metavar="WEIGHT_MAF",
     )
 
-    # Group: Output & formatting
     grp_output = parser.add_argument_group("Output", "Output formatting and summary")
     grp_output.add_argument(
         "-ch",
@@ -183,7 +178,6 @@ def create_parser() -> argparse.ArgumentParser:
         default=False,
     )
 
-    # Group: IO formats
     grp_io = parser.add_argument_group("IO formats", "Input and output VCF/BCF formats")
     grp_io.add_argument(
         "-I",
@@ -206,10 +200,6 @@ def create_parser() -> argparse.ArgumentParser:
         default="v",
     )
 
-    # Group: Performance & memory
-    # Lazy loading options removed - no longer needed
-
-    # Group: Logging
     grp_log = parser.add_argument_group("Logging", "Logging verbosity and format")
     grp_log.add_argument(
         "-q",
@@ -257,35 +247,42 @@ def main() -> None:
         >>> main()
         >>> # Will process input.vcf and create output_1.vcf, output_2.vcf
     """
-    # Set up signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
 
     parser = create_parser()
     args = parser.parse_args()
 
-    # Validate arguments
     validate_cli_arguments(args)
 
-    # Create configuration
     config = MDSearchConfig(
         input_vcf=args.ivcf,
         output_prefix=args.outdir,
         ploidy=args.pl,
         min_distance=args.md,
         convert_het=args.ch,
-        n_sets=args.ns,  # args.ns is already converted to int by validation
+        n_sets=args.ns,
         verbose=not args.quiet,
         log_level=args.log_level,
         log_format=args.log_format,
         weight_entropy=args.weight_entropy,
         weight_maf=args.weight_maf,
-        # Lazy loading arguments removed - no longer needed
         input_format=args.input_format,
         output_format=args.output_format,
     )
 
-    # Run application
+    print(f"Starting MDSearch {_build_version_string()}")
+    print(f"Input VCF: {config.input_vcf}")
+    print(f"Output directory: {config.output_prefix}")
+    print(
+        f"Configuration: ploidy={config.ploidy}, min_distance={config.min_distance}, n_sets={config.n_sets}"
+    )
+    if config.convert_het:
+        print("Converting heterozygous calls to missing values")
+    print(f"Weights: entropy={config.weight_entropy}, MAF={config.weight_maf}")
+    print(f"Logging: level={config.log_level or 'INFO'}, format={config.log_format}")
+    print("-" * 60)
+
     app = MDSearchApp(config, shutdown_checker=is_shutdown_requested)
     try:
         app.run()

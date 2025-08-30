@@ -19,7 +19,6 @@ def infer_format_letter(path: Path) -> str:
         return "b"
     if name.endswith(".vcf"):
         return "v"
-    # Fallback: try to open and inspect
     try:
         with pysam.VariantFile(name) as vf:
             text_header = str(vf.header)
@@ -46,17 +45,14 @@ def ensure_variant_index(
         return
 
     if fmt in ("b", "u", "z"):
-        # CSI naming convention appends .csi to the full filename
         csi = Path(str(vpath) + ".csi")
         if csi.exists():
             return
         if logger and logger.isEnabledFor(logging.INFO):
             logger.info("Index not found; creating CSI index via bcftools...")
-        # Create CSI index using bcftools
         _run_bcftools_index(vpath, logger)
         return
 
-    # Unknown: do nothing
     if logger and logger.isEnabledFor(logging.WARNING):
         logger.warning(f"Unknown input format '{fmt}'; skipping index verification")
 

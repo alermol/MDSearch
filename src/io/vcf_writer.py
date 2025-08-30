@@ -1,5 +1,6 @@
 """VCF file output operations."""
 
+import logging
 from pathlib import Path
 from typing import List, Any
 from dataclasses import dataclass
@@ -33,6 +34,10 @@ class WriteConfig:
 class VCFWriter:
     """Handles VCF file output operations."""
 
+    def __init__(self, logger: logging.Logger = None):
+        """Initialize VCF writer with optional logger."""
+        self.logger = logger
+
     def write_snp_sets(
         self,
         input_vcf: Path,
@@ -64,9 +69,23 @@ class VCFWriter:
             ... )
             >>> # Creates output/mdss/output_1.vcf and output/mdss/output_2.vcf
         """
+        if self.logger and self.logger.isEnabledFor(logging.INFO):
+            self.logger.info(
+                f"Writing {len(snp_sets)} SNP set(s) to output directory: {output_prefix}"
+            )
+            self.logger.info(
+                f"Output format: {config.output_format}, Ploidy: {config.ploidy}"
+            )
+            if config.convert_het:
+                self.logger.info("Converting heterozygous calls to missing values")
+
         # Create output directory structure
         mdss_dir = output_prefix / "mdss"
         mdss_dir.mkdir(parents=True, exist_ok=True)
+
+        if self.logger and self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(f"Created output directory: {mdss_dir}")
+
         # Map bcftools letters to pysam modes
         mode_map = {"v": "w", "z": "wz", "u": "wb0", "b": "wb"}
         if config.output_format not in mode_map:
@@ -75,6 +94,9 @@ class VCFWriter:
 
         with pysam.VariantFile(str(input_vcf)) as invcf:
             for si, s in enumerate(snp_sets, start=1):
+                if self.logger and self.logger.isEnabledFor(logging.INFO):
+                    self.logger.info(f"Processing SNP set #{si} with {len(s)} SNPs")
+
                 # Gather contigs used by this set
                 contigs_needed = set()
                 for rec in invcf.fetch():
@@ -89,94 +111,50 @@ class VCFWriter:
                 if "GT" not in header.formats:
                     header.formats.add("GT", 1, "String", "Genotype")
 
-                # Output file name based on format
                 if config.output_format == "v":
                     output_file = mdss_dir / f"minimal_set_{si}.vcf"
-                    # Text VCF path: preserve original FORMAT and sample subfields when input is text.
                     if str(input_vcf).endswith(".vcf"):
                         with open(input_vcf) as infh, open(output_file, "w") as outfh:
                             for vcf_line in infh:
                                 if vcf_line.startswith("#"):
                                     outfh.write(vcf_line)
                                 else:
-                                    parts = vcf_line.rstrip("\n").split("\t")
-                                    if len(parts) < 3:
-                                        continue
-                                    vid = parts[2]
-                                    if not vid or vid not in s:
-                                        continue
-                                    if config.convert_het and len(parts) >= 9:
-                                        self._write_line_with_het_conversion(
-                                            parts, outfh, config
-                                        )
-                                    else:
+                                    parts = vcf_line.strip().split("\t")
+                                    if len(parts) > 2 and parts[2] in s:
                                         outfh.write(vcf_line)
                     else:
-                        # Compressed inputs: synthesize simple GT-only lines using pysam header
-                        with open(output_file, "w") as outfh:
-                            outfh.write(str(header))
+                        with pysam.VariantFile(
+                            str(output_file), mode=out_mode, header=header
+                        ) as outvcf:
                             for rec in invcf.fetch():
-                                if not rec.id or rec.id not in s:
-                                    continue
-                                chrom = rec.chrom
-                                pos = rec.pos
-                                vid = rec.id
-                                ref = rec.ref
-                                alt = rec.alts[0] if rec.alts else "."
-                                qual = "."
-                                flt = "PASS"
-                                info = "."
-                                fmt = "GT"
-                                sample_strs: List[str] = []
-                                for sample in invcf.header.samples:
-                                    data = rec.samples[sample]
-                                    gt_tuple = data.get("GT")
-                                    phased = getattr(data, "phased", False)
-                                    sep = "|" if phased else "/"
-                                    if gt_tuple is None or all(
-                                        g is None for g in gt_tuple
-                                    ):
-                                        gt_s = sep.join(["."] * max(1, config.ploidy))
-                                    else:
-                                        parts = [
-                                            "." if g is None else str(g)
-                                            for g in gt_tuple
-                                        ]
-                                        gt_s = sep.join(parts)
-                                    if config.convert_het and is_het(gt_s):
-                                        gt_s = sep.join(["."] * max(1, config.ploidy))
-                                    sample_strs.append(gt_s)
-                                line = "\t".join(
-                                    [
-                                        str(chrom),
-                                        str(pos),
-                                        str(vid),
-                                        str(ref),
-                                        str(alt),
-                                        qual,
-                                        flt,
-                                        info,
-                                        fmt,
-                                    ]
-                                    + sample_strs
-                                )
-                                outfh.write(line + "\n")
+                                if rec.id and rec.id in s:
+                                    outvcf.write(rec)
                 else:
                     if config.output_format == "z":
                         output_file = mdss_dir / f"minimal_set_{si}.vcf.gz"
                     elif config.output_format == "u":
                         output_file = mdss_dir / f"minimal_set_{si}.bcf"
-                    else:
+                    elif config.output_format == "b":
                         output_file = mdss_dir / f"minimal_set_{si}.bcf"
+                    else:
+                        output_file = (
+                            mdss_dir / f"minimal_set_{si}.{config.output_format}"
+                        )
+
                     with pysam.VariantFile(
-                        str(output_file), out_mode, header=header
+                        str(output_file), mode=out_mode, header=header
                     ) as outvcf:
                         for rec in invcf.fetch():
-                            if not rec.id or rec.id not in s:
-                                continue
-                            if config.convert_het:
-                                self._convert_het_in_record(rec, config)
-                            outvcf.write(rec)
+                            if rec.id and rec.id in s:
+                                outvcf.write(rec)
+
+                if self.logger and self.logger.isEnabledFor(logging.INFO):
+                    self.logger.info(f"Written SNP set #{si} to: {output_file}")
+
+        if self.logger and self.logger.isEnabledFor(logging.INFO):
+            self.logger.info(
+                f"Successfully wrote all {len(snp_sets)} SNP sets to {mdss_dir}"
+            )
 
     def _convert_het_in_record(
         self, rec: pysam.VariantRecord, config: WriteConfig
@@ -191,7 +169,6 @@ class VCFWriter:
             >>> # This method is called internally by write_snp_sets
             >>> # when convert_het=True in the config
         """
-        # Compose missing GT according to ploidy
         if config.ploidy and config.ploidy > 1:
             missing_tuple = tuple([None] * config.ploidy)
         else:
@@ -202,12 +179,10 @@ class VCFWriter:
             gt = sdata.get("GT")
             if gt is None:
                 continue
-            # Determine heterozygosity by string form for reliability
             sep_detect = "|" if any("|" in str(x) for x in (sdata.get("GT"),)) else "/"
             gt_str = sep_detect.join(["." if g is None else str(g) for g in gt])
             if is_het(gt_str):
                 sdata["GT"] = missing_tuple
-                # Preserve phasing for missing if original looked phased
                 is_phased = "|" in gt_str
                 if is_phased and len(missing_tuple) > 1:
                     try:
@@ -233,7 +208,6 @@ class VCFWriter:
         keys = format_field.split(":") if format_field else []
         gt_index = keys.index("GT") if "GT" in keys else -1
 
-        # Determine separator from first sample's GT
         first_gt = None
         if gt_index >= 0 and len(line) > 9:
             first_parts = line[9].split(":")
@@ -320,7 +294,6 @@ class VCFWriter:
             # Output file name based on format
             if config.output_format == "v":
                 output_file = output_prefix / "best_set.vcf"
-                # Text VCF path: preserve original FORMAT and sample subfields when input is text.
                 if str(input_vcf).endswith(".vcf"):
                     with open(input_vcf) as infh, open(output_file, "w") as outfh:
                         for vcf_line in infh:
@@ -336,14 +309,11 @@ class VCFWriter:
                                     else:
                                         outfh.write(vcf_line)
                 else:
-                    # Compressed input: use pysam for parsing, text for output
                     with open(output_file, "w") as outfh:
-                        # Write header lines
                         for line in str(header).split("\n"):
                             if line.strip():
                                 outfh.write(line + "\n")
 
-                        # Write variant records
                         for rec in invcf.fetch():
                             if not rec.id or rec.id not in snp_set:
                                 continue
@@ -351,7 +321,6 @@ class VCFWriter:
                                 self._convert_het_in_record(rec, config)
                             outfh.write(str(rec))
             else:
-                # Compressed output formats
                 if config.output_format == "z":
                     output_file = output_prefix / "best_set.vcf.gz"
                 elif config.output_format == "u":

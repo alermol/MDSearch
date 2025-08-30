@@ -30,7 +30,6 @@ def setup_logger(
     """Configure and return a logger with specified settings."""
     logger = logging.getLogger(name)
 
-    # Avoid duplicate handlers if multiple instances
     if not logger.handlers:
         handler = logging.StreamHandler()
 
@@ -42,7 +41,6 @@ def setup_logger(
         logger.addHandler(handler)
         logger.propagate = False
 
-    # Determine level
     level_name = (level or ("INFO" if verbose else "WARNING")).upper()
     log_level = getattr(logging, level_name, logging.INFO)
     logger.setLevel(log_level)

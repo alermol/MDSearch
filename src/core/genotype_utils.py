@@ -101,12 +101,11 @@ def calculate_snp_information_entropy(genotypes: List[float]) -> float:
     if not genotypes:
         return 0.0
 
-    # Count occurrences of each genotype category
     genotype_counts = {
-        "ref": 0,  # 0.0 (homozygous reference)
-        "het": 0,  # 0.5 (heterozygous)
-        "alt": 0,  # 1.0 (homozygous alternate)
-        "missing": 0,  # NaN (missing data)
+        "ref": 0,
+        "het": 0,
+        "alt": 0,
+        "missing": 0,
     }
 
     total_valid = 0
@@ -120,7 +119,6 @@ def calculate_snp_information_entropy(genotypes: List[float]) -> float:
         elif gt == 1.0:
             genotype_counts["alt"] += 1
         else:
-            # Handle any other unexpected values as missing
             genotype_counts["missing"] += 1
 
         total_valid += 1
@@ -128,7 +126,6 @@ def calculate_snp_information_entropy(genotypes: List[float]) -> float:
     if total_valid == 0:
         return 0.0
 
-    # Calculate entropy
     entropy = 0.0
     for count in genotype_counts.values():
         if count > 0:
@@ -149,19 +146,15 @@ def calculate_snp_entropy_score(
     if not genotypes:
         return 0.0
 
-        # Calculate entropy if not provided
     if entropy is None:
         entropy = calculate_snp_information_entropy(genotypes)
 
-    # Normalize entropy to [0, 1] range (max entropy is log2(4) = 2.0)
     max_entropy = 2.0
     normalized_entropy = entropy / max_entropy if max_entropy > 0 else 0.0
 
-    # Normalize MAF to [0, 1] range (max MAF is 0.5)
     max_maf = 0.5
     normalized_maf = maf / max_maf if max_maf > 0 else 0.0
 
-    # Calculate combined score
     score = weight_entropy * normalized_entropy + weight_maf * normalized_maf
 
     return score

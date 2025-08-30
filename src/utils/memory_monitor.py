@@ -11,8 +11,7 @@ __all__ = ["MemoryMonitor"]
 
 class MemoryMonitor:
     """Utility class for monitoring memory usage and providing warnings."""
-
-    # Dynamic threshold percentages of total system memory
+    
     WARNING_THRESHOLD_PERCENT = 50.0
     CRITICAL_THRESHOLD_PERCENT = 90.0
 
@@ -21,7 +20,6 @@ class MemoryMonitor:
         self.logger = logger
         self.process = psutil.Process()
 
-        # Calculate dynamic thresholds based on total system memory
         total_memory_mb = psutil.virtual_memory().total / 1024 / 1024
         self.warning_threshold_mb = total_memory_mb * (
             self.WARNING_THRESHOLD_PERCENT / 100
@@ -30,7 +28,6 @@ class MemoryMonitor:
             self.CRITICAL_THRESHOLD_PERCENT / 100
         )
 
-        # Log the calculated thresholds for transparency
         self.logger.debug(
             f"Memory thresholds calculated: Warning={self.warning_threshold_mb:.1f}MB "
             f"({self.WARNING_THRESHOLD_PERCENT}%), Critical={self.critical_threshold_mb:.1f}MB "
@@ -45,11 +42,9 @@ class MemoryMonitor:
     def get_peak_memory_usage_mb(self) -> float:
         """Get peak memory usage in MB during the process lifetime."""
         try:
-            # Try to get peak working set size (Windows) or peak RSS (Linux)
             memory_info = self.process.memory_info()
             peak_bytes = memory_info.peak_rss
         except (AttributeError, OSError):
-            # Fallback to current memory usage if any error occurs
             peak_bytes = self.process.memory_info().rss
 
         return float(peak_bytes / 1024 / 1024)
@@ -80,9 +75,20 @@ class MemoryMonitor:
         else:
             self.logger.debug(f"Memory usage during {operation}: {current_mb:.1f}MB. ")
 
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(f"Memory status for {operation}:")
+            self.logger.debug(f"  Current: {current_mb:.1f}MB")
+            self.logger.debug(f"  Available: {available_mb:.1f}MB")
+            self.logger.debug(f"  Warning threshold: {self.warning_threshold_mb:.1f}MB")
+            self.logger.debug(
+                f"  Critical threshold: {self.critical_threshold_mb:.1f}MB"
+            )
+            self.logger.debug(
+                f"  Usage percentage: {(current_mb / (current_mb + available_mb) * 100):.1f}%"
+            )
+
     def estimate_matrix_memory_mb(self, num_snps: int, num_samples: int) -> float:
         """Estimate memory usage for genotype matrix in MB."""
-        # NumPy float64 = 8 bytes per element
         matrix_bytes = num_snps * num_samples * 8
         return matrix_bytes / 1024 / 1024
 
@@ -101,14 +107,13 @@ class MemoryMonitor:
         estimated_mb = self.estimate_matrix_memory_mb(num_snps, num_samples)
         available_mb = self.get_available_memory_mb()
 
-        # Use dynamic thresholds for warnings
-        if estimated_mb > available_mb * 0.8:  # Using 80% of available memory
+        if estimated_mb > available_mb * 0.8:
             self.logger.warning(
                 f"MEMORY WARNING: Dataset ({num_snps} SNPs × {num_samples} samples) "
                 f"may require ~{estimated_mb:.1f}MB memory, but only {available_mb:.1f}MB available. "
                 "Consider reducing dataset size or using a machine with more memory."
             )
-        elif estimated_mb > self.warning_threshold_mb:  # Use dynamic warning threshold
+        elif estimated_mb > self.warning_threshold_mb:
             self.logger.warning(
                 f"Large dataset detected ({num_snps} SNPs × {num_samples} samples). "
                 f"Estimated memory usage ~{estimated_mb:.1f}MB exceeds warning threshold "
@@ -116,7 +121,7 @@ class MemoryMonitor:
             )
         elif (
             estimated_mb > self.warning_threshold_mb * 0.5
-        ):  # Half of warning threshold
+        ):
             self.logger.info(
                 f"Large dataset detected ({num_snps} SNPs × {num_samples} samples). "
                 f"Estimated memory usage: ~{estimated_mb:.1f}MB"

@@ -62,6 +62,14 @@ class DistanceCalculator:
                 f"Computing pairwise distances for {num_samples - 1} sample comparisons"
             )
 
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(
+                f"Distance calculation: {len(snps)} SNPs × {num_samples} samples"
+            )
+            self.logger.debug(
+                f"Total pairwise comparisons: {num_samples * (num_samples - 1) // 2}"
+            )
+
         for i in sample_range:
             # Check for graceful shutdown request
             if self.shutdown_checker and self.shutdown_checker():
@@ -80,6 +88,9 @@ class DistanceCalculator:
             dists = diffs.sum(axis=0).astype(float)  # per pair distances vs column i
             pairwise_distances.extend(dists.tolist())
 
+            if self.logger.isEnabledFor(logging.DEBUG) and i % 100 == 0:
+                self.logger.debug(f"Processed sample {i+1}/{num_samples-1}")
+
         # Handle early exit case
         if not pairwise_distances:
             if log and self.logger.isEnabledFor(logging.INFO):
@@ -95,6 +106,12 @@ class DistanceCalculator:
                 "Distance between samples (min/med/avg/max): "
                 f"{np.min(res)}/{np.median(res)}/{round(float(np.mean(res)), 1)}/{np.max(res)}"
             )
+
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(
+                f"Distance calculation completed: {len(pairwise_distances)} pairwise distances"
+            )
+            self.logger.debug(f"Distance range: {np.min(res)} to {np.max(res)}")
 
         # Monitor memory after distance calculation
         self.memory_monitor.check_memory_and_warn("distance calculation complete")

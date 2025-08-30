@@ -52,7 +52,6 @@ class SNPSelector:
                 continue
             maf = vcf_data.snp_maf_cache.get(sid, 0.0)
             entropy = vcf_data.snp_entropy_cache.get(sid, 0.0)
-            # Use cached entropy for scoring
             entropy_score = calculate_snp_entropy_score(
                 snp_data.genotypes,
                 maf,
@@ -65,7 +64,6 @@ class SNPSelector:
         if not candidates:
             raise BuildError("No SNPs available for selection after exclusions.")
 
-        # Sort by entropy score desc, SNP ID asc
         candidates.sort(key=lambda x: (-x[1], x[0]))
         return candidates[0][0]
 
@@ -80,7 +78,6 @@ class SNPSelector:
         current_snp_set: List[str] = []
         current_snps_geno: List[List[float]] = []
 
-        # Choose first SNP
         current_snp = self.select_first_discriminatory_snp(vcf_data, excluded=excluded)
         current_snps_geno.append(vcf_data.snp_genotypes[current_snp].genotypes)
         current_snp_set.append(current_snp)
@@ -88,12 +85,10 @@ class SNPSelector:
         if self.logger.isEnabledFor(logging.INFO):
             self.logger.info("Discriminatory SNP selection...")
 
-        # Identify primary set of SNPs deterministically with tie-breakers
         while (
             self.distance_calc.calc_min_distance(current_snps_geno, log=False)
             < min_distance
         ):
-            # Check for graceful shutdown request
             if self.shutdown_checker and self.shutdown_checker():
                 if self.logger.isEnabledFor(logging.INFO):
                     self.logger.info(
@@ -107,7 +102,6 @@ class SNPSelector:
                     continue
                 maf = vcf_data.snp_maf_cache.get(sid, 0.0)
                 entropy = vcf_data.snp_entropy_cache.get(sid, 0.0)
-                # Use cached entropy for scoring
                 entropy_score = calculate_snp_entropy_score(
                     snp_data.genotypes,
                     maf,
@@ -120,7 +114,6 @@ class SNPSelector:
             if not parent_nodes_info:
                 raise BuildError("Not enough polymorphic SNP to discriminate samples.")
 
-            # Sort by entropy score desc, SNP ID asc
             parent_nodes_info.sort(key=lambda x: (-x[1], x[0]))
             current_snp = parent_nodes_info[0][0]
             current_snps_geno.append(vcf_data.snp_genotypes[current_snp].genotypes)
@@ -163,18 +156,24 @@ class SNPSelector:
         """Greedy backward elimination preserving minimal distance constraint."""
         if log_start and self.logger.isEnabledFor(logging.INFO):
             self.logger.info("Backward one-by-one elimination...")
+            self.logger.info(
+                f"Starting with {len(snp_set)} SNPs, target distance: {min_distance}"
+            )
 
-        # Monitor memory before creating large matrices
         self.memory_monitor.check_memory_and_warn("elimination algorithm start")
 
         optimized_ids: List[str] = list(snp_set)
-        # Build matrix (rows=SNPs, cols=samples) in current order
         snps_matrix = np.array(
             [vcf_data.snp_genotypes[sid].genotypes for sid in optimized_ids]
         )
         num_snps, num_samples = snps_matrix.shape
 
-        # Precompute per-row contributions to upper-triangle pairwise distances
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(
+                f"Elimination matrix: {num_snps} SNPs × {num_samples} samples"
+            )
+            self.logger.debug(f"Initial SNP set: {optimized_ids}")
+
         pair_contribs: List[NDArray[np.int32]] = []
         for r in range(num_snps):
             row = snps_matrix[r, :]
@@ -193,31 +192,48 @@ class SNPSelector:
             pair_contribs.append(row_contrib)
 
         if pair_contribs:
-            contrib_matrix = np.vstack(pair_contribs)  # shape: (num_snps, num_pairs)
+            contrib_matrix = np.vstack(pair_contribs)
             current_pair_dists = contrib_matrix.sum(axis=0).astype(np.int32)
         else:
             contrib_matrix = np.zeros((0, 0), dtype=np.int32)
             current_pair_dists = np.zeros(0, dtype=np.int32)
 
-        # Greedy removal in stable order (SNP ID asc)
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(f"Contribution matrix shape: {contrib_matrix.shape}")
+            self.logger.debug(
+                f"Initial pairwise distances: min={current_pair_dists.min() if current_pair_dists.size > 0 else 'N/A'}"
+            )
+
+        removed_count = 0
         for sid in sorted(list(optimized_ids)):
-            # Skip if sid already removed
             if sid not in optimized_ids:
                 continue
             idx = optimized_ids.index(sid)
-            # Compute distances if this SNP is removed
             candidate_pair_dists = current_pair_dists - contrib_matrix[idx]
             if (
                 candidate_pair_dists.size == 0
                 or candidate_pair_dists.min() >= min_distance
             ):
-                # Accept removal: update state
                 optimized_ids.pop(idx)
                 current_pair_dists = candidate_pair_dists
                 if contrib_matrix.size:
                     contrib_matrix = np.delete(contrib_matrix, idx, axis=0)
 
-        # Monitor memory after elimination algorithm and force cleanup
+                removed_count += 1
+                if self.logger.isEnabledFor(logging.DEBUG):
+                    self.logger.debug(
+                        f"Removed SNP: {sid} (remaining: {len(optimized_ids)})"
+                    )
+                    if candidate_pair_dists.size > 0:
+                        self.logger.debug(
+                            f"New min distance: {candidate_pair_dists.min()}"
+                        )
+
+        if self.logger.isEnabledFor(logging.INFO):
+            self.logger.info(
+                f"Elimination complete: removed {removed_count} SNPs, final set: {len(optimized_ids)} SNPs"
+            )
+
         self.memory_monitor.check_memory_and_warn("elimination algorithm complete")
         self.memory_monitor.force_garbage_collection()
 
@@ -230,7 +246,6 @@ class SNPSelector:
         n_sets: Union[int, str],
     ) -> List[List[str]]:
         """Find all perfectly orthogonal (disjoint) minimal discriminating SNP sets."""
-        # Convert n_sets to int for internal use
         n_sets_int = int(n_sets) if isinstance(n_sets, str) else n_sets
 
         if self.logger.isEnabledFor(logging.INFO):
@@ -243,15 +258,12 @@ class SNPSelector:
                     f"Searching for up to {n_sets_int} disjoint minimal SNP sets..."
                 )
 
-        # Enumerate orthogonal sets using global exclusions to enforce disjointness
         disjoint_sets: List[List[str]] = []
         excluded_global: Set[str] = set()
 
         alt_index = 0
 
-        # Continue searching until either we reach n_sets (if specified) or no more sets can be found
         while n_sets_int == 0 or n_sets_int > len(disjoint_sets):
-            # Check for graceful shutdown request
             if self.shutdown_checker and self.shutdown_checker():
                 if self.logger.isEnabledFor(logging.INFO):
                     self.logger.info(
@@ -259,7 +271,6 @@ class SNPSelector:
                     )
                 break
 
-            # Report available SNPs for this set generation
             available_snps = len(vcf_data.snp_genotypes) - len(excluded_global)
             if self.logger.isEnabledFor(logging.INFO):
                 self.logger.info(
@@ -282,7 +293,6 @@ class SNPSelector:
 
             if not selected_set_minimal:
                 break
-            # Ensure strict disjointness from all previously selected sets
             if all(
                 len(set(selected_set_minimal).intersection(set(s))) == 0
                 for s in disjoint_sets
