@@ -9,7 +9,7 @@ import platform
 import subprocess
 
 from .core import VCFParser, DistanceCalculator, SNPSelector, VCFData
-from .io import VCFWriter, WriteConfig, SummaryWriter
+from .io import VCFWriter, WriteConfig, SummaryWriter, RunInfoWriter, StructureInfoWriter
 from .utils import MemoryMonitor, setup_logger
 from .utils import ensure_variant_index
 from .version import __version__ as mdsearch_version
@@ -116,99 +116,15 @@ class MDSearchApp:
         )
         self.vcf_writer = VCFWriter()
         self.summary_writer = SummaryWriter(self.distance_calc)
+        self.run_info_writer = RunInfoWriter(self.memory_monitor)
+        self.structure_info_writer = StructureInfoWriter(self.config.output_format)
 
         # Initial memory check
         self.memory_monitor.check_memory_and_warn("initialization")
 
-    def _write_run_info(self, vcf_data: VCFData, snp_sets: List[List[str]]) -> None:
-        """Write run information to a file in the output directory.
 
-        Args:
-            vcf_data: Parsed VCF data containing sample and SNP information
-            snp_sets: List of SNP sets that were generated
-        """
-        run_info_path = self.config.output_prefix / "run_info.txt"
 
-        # Get git commit hash if available
-        try:
-            git_commit = (
-                subprocess.run(
-                    ["git", "rev-parse", "--short", "HEAD"],
-                    check=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    text=True,
-                ).stdout.strip()
-                or "unknown"
-            )
-        except Exception:
-            git_commit = "unknown"
 
-        # Get current timestamp
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
-
-        # Get comprehensive memory information (after run completion)
-        memory_summary = self.memory_monitor.get_memory_summary()
-        threshold_info = self.memory_monitor.get_threshold_info()
-        estimated_matrix_mb = self.memory_monitor.estimate_matrix_memory_mb(
-            len(vcf_data.snp_genotypes), len(vcf_data.headers.samples)
-        )
-
-        # Prepare run info content
-        lines = [
-            "MDSearch Run Information",
-            "=======================",
-            "",
-            f"Version: {mdsearch_version}",
-            f"Git commit: {git_commit}",
-            f"Python version: {platform.python_version()}",
-            f"Platform: {platform.platform()}",
-            "",
-            f"Run timestamp: {timestamp}",
-            "",
-            "System Memory Information:",
-            f"  Current process memory: {memory_summary['current_mb']:.1f} MB",
-            f"  Peak process memory: {memory_summary['peak_mb']:.1f} MB",
-            f"  Available system memory: {memory_summary['available_mb']:.1f} MB",
-            f"  Total system memory: {memory_summary['total_mb']:.1f} MB",
-            f"  Memory warning threshold: {memory_summary['warning_threshold_mb']:.1f} MB ({threshold_info['warning_percent']:.0f}%)",
-            f"  Critical threshold: {memory_summary['critical_threshold_mb']:.1f} MB ({threshold_info['critical_percent']:.0f}%)",
-            f"  Estimated genotype matrix memory: {estimated_matrix_mb:.1f} MB",
-            "",
-            "Input Configuration:",
-            f"  Input VCF: {self.config.input_vcf}",
-            f"  Input format: {self.config.input_format}",
-            f"  Output directory: {self.config.output_prefix}",
-            f"  Output format: {self.config.output_format}",
-            f"  Ploidy: {self.config.ploidy}",
-            f"  Minimum distance: {self.config.min_distance}",
-            f"  Convert heterozygous: {self.config.convert_het}",
-            f"  Target number of sets: {self.config.n_sets}",
-            f"  Weight entropy: {self.config.weight_entropy}",
-            f"  Weight MAF: {self.config.weight_maf}",
-            f"  Verbose: {self.config.verbose}",
-            f"  Log level: {self.config.log_level or 'default'}",
-            f"  Log format: {self.config.log_format}",
-            "",
-            "Input Data Summary:",
-            f"  Number of samples: {len(vcf_data.headers.samples)}",
-            f"  Number of SNPs: {len(vcf_data.snp_genotypes)}",
-            f"  Chromosomes: {', '.join(sorted(vcf_data.headers.contigs))}",
-            "",
-            "Output Summary:",
-            f"  Number of SNP sets found: {len(snp_sets)}",
-        ]
-
-        # Add details for each SNP set
-        for i, snp_set in enumerate(snp_sets, 1):
-            lines.append(f"  Set {i}: {len(snp_set)} SNPs")
-
-        # Write to file
-        with open(run_info_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))
-
-        if self.logger.isEnabledFor(logging.INFO):
-            self.logger.info(f"Run information written to: {run_info_path}")
 
     def run(self) -> None:
         """Execute the complete MDSearch pipeline.
@@ -272,7 +188,33 @@ class MDSearchApp:
             self.logger.info(f"Summary TSV written: {summary_path}")
 
         # 6.5. Write run information
-        self._write_run_info(vcf_data, snp_sets)
+        config_data = {
+            'input_vcf': self.config.input_vcf,
+            'input_format': self.config.input_format,
+            'output_prefix': self.config.output_prefix,
+            'output_format': self.config.output_format,
+            'ploidy': self.config.ploidy,
+            'min_distance': self.config.min_distance,
+            'convert_het': self.config.convert_het,
+            'n_sets': self.config.n_sets,
+            'weight_entropy': self.config.weight_entropy,
+            'weight_maf': self.config.weight_maf,
+            'verbose': self.config.verbose,
+            'log_level': self.config.log_level,
+            'log_format': self.config.log_format,
+        }
+        run_info_path = self.run_info_writer.write_run_info(
+            self.config.output_prefix, vcf_data, snp_sets, config_data
+        )
+        if self.logger.isEnabledFor(logging.INFO):
+            self.logger.info(f"Run information written to: {run_info_path}")
+
+        # 6.6. Write output directory structure information
+        structure_info_path = self.structure_info_writer.write_structure_info(
+            self.config.output_prefix, snp_sets
+        )
+        if self.logger.isEnabledFor(logging.INFO):
+            self.logger.info(f"Output structure information written to: {structure_info_path}")
 
         # 7. Find best SNP set based on Shannon entropy and copy to best_set.vcf
         if snp_sets:
