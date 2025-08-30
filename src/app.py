@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import datetime
 import platform
 import subprocess
+import time
 
 from .core import VCFParser, DistanceCalculator, SNPSelector, VCFData
 from .io import VCFWriter, WriteConfig, SummaryWriter, RunInfoWriter, StructureInfoWriter
@@ -141,6 +142,9 @@ class MDSearchApp:
             >>> app.run()
             >>> # Will process VCF, select SNPs, and generate output files
         """
+        # Record start time for execution time tracking
+        start_time = time.time()
+        
         # 1. Ensure index exists for compressed inputs (VCF.gz/BCF)
         try:
             ensure_variant_index(
@@ -204,7 +208,7 @@ class MDSearchApp:
             'log_format': self.config.log_format,
         }
         run_info_path = self.run_info_writer.write_run_info(
-            self.config.output_prefix, vcf_data, snp_sets, config_data
+            self.config.output_prefix, vcf_data, snp_sets, config_data, start_time
         )
         if self.logger.isEnabledFor(logging.INFO):
             self.logger.info(f"Run information written to: {run_info_path}")

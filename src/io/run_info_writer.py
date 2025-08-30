@@ -3,6 +3,7 @@
 import datetime
 import platform
 import subprocess
+import time
 from pathlib import Path
 from typing import List
 
@@ -36,7 +37,8 @@ class RunInfoWriter:
         output_prefix: Path, 
         vcf_data: VCFData, 
         snp_sets: List[List[str]],
-        config_data: dict
+        config_data: dict,
+        start_time: float = None
     ) -> None:
         """Write comprehensive run information to a file.
 
@@ -73,6 +75,25 @@ class RunInfoWriter:
         # Get current timestamp
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
 
+        # Calculate execution time if start time provided
+        execution_time_info = ""
+        if start_time is not None:
+            end_time = time.time()
+            execution_seconds = end_time - start_time
+            
+            # Format execution time in human-readable format
+            if execution_seconds < 60:
+                execution_time_info = f"{execution_seconds:.2f} seconds"
+            elif execution_seconds < 3600:
+                minutes = int(execution_seconds // 60)
+                seconds = execution_seconds % 60
+                execution_time_info = f"{minutes} minutes {seconds:.1f} seconds"
+            else:
+                hours = int(execution_seconds // 3600)
+                minutes = int((execution_seconds % 3600) // 60)
+                seconds = execution_seconds % 60
+                execution_time_info = f"{hours} hours {minutes} minutes {seconds:.1f} seconds"
+
         # Get comprehensive memory information (after run completion)
         memory_summary = self.memory_monitor.get_memory_summary()
         threshold_info = self.memory_monitor.get_threshold_info()
@@ -91,6 +112,16 @@ class RunInfoWriter:
             f"Platform: {platform.platform()}",
             "",
             f"Run timestamp: {timestamp}",
+        ]
+        
+        # Add execution time if available
+        if execution_time_info:
+            lines.extend([
+                f"Execution time: {execution_time_info}",
+                "",
+            ])
+        
+        lines.extend([
             "",
             "System Memory Information:",
             f"  Current process memory: {memory_summary['current_mb']:.1f} MB",
@@ -123,7 +154,7 @@ class RunInfoWriter:
             "",
             "Output Summary:",
             f"  Number of SNP sets found: {len(snp_sets)}",
-        ]
+        ])
 
         # Add details for each SNP set
         for i, snp_set in enumerate(snp_sets, 1):
