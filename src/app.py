@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, Callable
 from dataclasses import dataclass
 
 from .core import VCFParser, DistanceCalculator, SNPSelector
@@ -61,11 +61,16 @@ class MDSearchConfig:
 class MDSearchApp:
     """Main application coordinator with separated concerns."""
 
-    def __init__(self, config: MDSearchConfig):
+    def __init__(
+        self,
+        config: MDSearchConfig,
+        shutdown_checker: Optional[Callable[[], bool]] = None,
+    ):
         """Initialize MDSearch application with configuration.
 
         Args:
             config: Application configuration
+            shutdown_checker: Optional function to check if shutdown was requested
 
         Example:
             >>> from src.app import MDSearchApp, MDSearchConfig
@@ -82,16 +87,19 @@ class MDSearchApp:
             Initialized with 2-ploidy analysis
         """
         self.config = config
+        self.shutdown_checker = shutdown_checker
         self.logger = setup_logger(
             "mdsearch", config.log_level, config.log_format, config.verbose
         )
         self.memory_monitor = MemoryMonitor(self.logger)
 
         # Initialize components
-        self.vcf_parser = VCFParser(self.memory_monitor, self.logger)
-        self.distance_calc = DistanceCalculator(self.memory_monitor, self.logger)
+        self.vcf_parser = VCFParser(self.memory_monitor, self.logger, shutdown_checker)
+        self.distance_calc = DistanceCalculator(
+            self.memory_monitor, self.logger, shutdown_checker=shutdown_checker
+        )
         self.snp_selector = SNPSelector(
-            self.distance_calc, self.memory_monitor, self.logger
+            self.distance_calc, self.memory_monitor, self.logger, shutdown_checker
         )
         self.vcf_writer = VCFWriter()
         self.summary_writer = SummaryWriter(self.distance_calc)

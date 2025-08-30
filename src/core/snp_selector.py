@@ -1,13 +1,14 @@
 """SNP selection and optimization algorithms."""
 
 import logging
-from typing import List, Set, Optional, Union
+from typing import List, Set, Optional, Union, Callable
 
 import numpy as np
 from numpy.typing import NDArray
 
 from .distance_calculator import DistanceCalculator
 from .vcf_parser import VCFData
+from .genotype_utils import calculate_snp_entropy_score
 from ..utils.memory_monitor import MemoryMonitor
 
 # VCFDataType alias removed - no longer needed without lazy loading
@@ -29,6 +30,7 @@ class SNPSelector:
         distance_calculator: DistanceCalculator,
         memory_monitor: MemoryMonitor,
         logger: logging.Logger,
+        shutdown_checker: Optional[Callable[[], bool]] = None,
     ):
         """Initialize SNP selector with required components.
 
@@ -36,6 +38,7 @@ class SNPSelector:
             distance_calculator: DistanceCalculator instance for computing distances
             memory_monitor: MemoryMonitor instance for tracking memory usage
             logger: Logger instance for output
+            shutdown_checker: Optional function to check if shutdown was requested
 
         Example:
             >>> from src.core.distance_calculator import DistanceCalculator
@@ -49,18 +52,19 @@ class SNPSelector:
         self.distance_calc = distance_calculator
         self.memory_monitor = memory_monitor
         self.logger = logger
+        self.shutdown_checker = shutdown_checker
 
     def select_first_discriminatory_snp(
         self, vcf_data: VCFData, excluded: Optional[Set[str]] = None
     ) -> str:
-        """Select SNP with highest MAF not in excluded; tie-break by SNP ID.
+        """Select SNP with highest entropy score not in excluded; tie-break by SNP ID.
 
         Args:
             vcf_data: VCF data containing SNP information
             excluded: Set of SNP IDs to exclude from selection
 
         Returns:
-            SNP ID with highest MAF (or lexicographically first if tied)
+            SNP ID with highest entropy score (or lexicographically first if tied)
 
         Raises:
             BuildError: If no SNPs available after exclusions
@@ -75,16 +79,21 @@ class SNPSelector:
         excluded = excluded or set()
         candidates = []
 
-        for sid, _ in vcf_data.snp_genotypes.items():
+        for sid, snp_data in vcf_data.snp_genotypes.items():
             if sid in excluded:
                 continue
             maf = vcf_data.snp_maf_cache.get(sid, 0.0)
-            candidates.append((sid, maf))
+            entropy = vcf_data.snp_entropy_cache.get(sid, 0.0)
+            # Use cached entropy for scoring
+            entropy_score = calculate_snp_entropy_score(
+                snp_data.genotypes, maf, entropy=entropy
+            )
+            candidates.append((sid, entropy_score))
 
         if not candidates:
             raise BuildError("No SNPs available for selection after exclusions.")
 
-        # Sort by MAF desc, SNP ID asc
+        # Sort by entropy score desc, SNP ID asc
         candidates.sort(key=lambda x: (-x[1], x[0]))
         return candidates[0][0]
 
@@ -94,7 +103,7 @@ class SNPSelector:
         min_distance: int,
         excluded: Optional[Set[str]] = None,
     ) -> List[str]:
-        """Greedily build initial SNP set maximizing MAF under exclusions.
+        """Greedily build initial SNP set maximizing entropy score under exclusions.
 
         Args:
             vcf_data: VCF data containing SNP information
@@ -133,17 +142,30 @@ class SNPSelector:
             self.distance_calc.calc_min_distance(current_snps_geno, log=False)
             < min_distance
         ):
+            # Check for graceful shutdown request
+            if self.shutdown_checker and self.shutdown_checker():
+                if self.logger.isEnabledFor(logging.INFO):
+                    self.logger.info(
+                        "Graceful shutdown requested. Stopping discriminatory set building."
+                    )
+                break
+
             parent_nodes_info = []
-            for sid, _ in vcf_data.snp_genotypes.items():
+            for sid, snp_data in vcf_data.snp_genotypes.items():
                 if (sid in current_snp_set) or (sid in excluded):
                     continue
                 maf = vcf_data.snp_maf_cache.get(sid, 0.0)
-                parent_nodes_info.append((sid, maf))
+                entropy = vcf_data.snp_entropy_cache.get(sid, 0.0)
+                # Use cached entropy for scoring
+                entropy_score = calculate_snp_entropy_score(
+                    snp_data.genotypes, maf, entropy=entropy
+                )
+                parent_nodes_info.append((sid, entropy_score))
 
             if not parent_nodes_info:
                 raise BuildError("Not enough polymorphic SNP to discriminate samples.")
 
-            # Sort by MAF desc, SNP ID asc
+            # Sort by entropy score desc, SNP ID asc
             parent_nodes_info.sort(key=lambda x: (-x[1], x[0]))
             current_snp = parent_nodes_info[0][0]
             current_snps_geno.append(vcf_data.snp_genotypes[current_snp].genotypes)
@@ -154,6 +176,47 @@ class SNPSelector:
                 f"After 1st step {len(current_snp_set)} primary SNP selected"
             )
         return current_snp_set
+
+    def get_snp_entropy_scores(
+        self, vcf_data: VCFData, excluded: Optional[Set[str]] = None
+    ) -> List[tuple[str, float, float, float]]:
+        """Get entropy scores for all SNPs in the dataset.
+
+        This method calculates and returns entropy scores for all SNPs, which can be
+        useful for analysis, debugging, and understanding the information content
+        distribution across the dataset.
+
+        Args:
+            vcf_data: VCF data containing SNP information
+            excluded: Set of SNP IDs to exclude from scoring
+
+        Returns:
+            List of tuples containing (SNP_ID, entropy_score, maf, raw_entropy)
+
+        Example:
+            >>> selector = SNPSelector(distance_calc, memory_monitor, logger)
+            >>> scores = selector.get_snp_entropy_scores(vcf_data, excluded={"rs999"})
+            >>> for snp_id, score, maf, entropy in sorted(scores, key=lambda x: -x[1])[:5]:
+            ...     print(f"{snp_id}: score={score:.3f}, maf={maf:.3f}, entropy={entropy:.3f}")
+            rs123: score=0.910, maf=0.400, entropy=1.585
+            rs456: score=0.863, maf=0.350, entropy=1.500
+        """
+        excluded = excluded or set()
+        scores = []
+
+        for sid, snp_data in vcf_data.snp_genotypes.items():
+            if sid in excluded:
+                continue
+
+            maf = vcf_data.snp_maf_cache.get(sid, 0.0)
+            raw_entropy = vcf_data.snp_entropy_cache.get(sid, 0.0)
+            entropy_score = calculate_snp_entropy_score(
+                snp_data.genotypes, maf, entropy=raw_entropy
+            )
+
+            scores.append((sid, entropy_score, maf, raw_entropy))
+
+        return scores
 
     def deterministic_eliminate(
         self,
@@ -283,6 +346,14 @@ class SNPSelector:
 
         # Continue searching until either we reach n_sets (if specified) or no more sets can be found
         while n_sets_int == 0 or n_sets_int > len(disjoint_sets):
+            # Check for graceful shutdown request
+            if self.shutdown_checker and self.shutdown_checker():
+                if self.logger.isEnabledFor(logging.INFO):
+                    self.logger.info(
+                        "Graceful shutdown requested. Stopping SNP set search."
+                    )
+                break
+
             # Report available SNPs for this set generation
             available_snps = len(vcf_data.snp_genotypes) - len(excluded_global)
             if self.logger.isEnabledFor(logging.INFO):

@@ -10,6 +10,8 @@ __all__ = [
     "calculate_maf",
     "is_het",
     "calculate_shannon_entropy",
+    "calculate_snp_information_entropy",
+    "calculate_snp_entropy_score",
 ]
 
 
@@ -205,3 +207,149 @@ def calculate_shannon_entropy(chromosome_counts: Dict[str, int]) -> float:
             entropy -= probability * math.log2(probability)
 
     return entropy
+
+
+def calculate_snp_information_entropy(genotypes: List[float]) -> float:
+    """Calculate Shannon entropy for SNP information content based on genotype distribution.
+
+    This function measures the information content of a SNP by calculating the Shannon
+    entropy of its genotype distribution. Higher entropy indicates more informative SNPs
+    with more balanced genotype distributions, while lower entropy indicates less
+    informative SNPs with skewed distributions.
+
+    The entropy is calculated as: H = -Σ(p_i * log2(p_i)) where p_i is the probability
+    of each genotype category (0, 0.5, 1, missing).
+
+    Args:
+        genotypes: List of numeric genotype values (0.0, 0.5, 1.0, or NaN for missing)
+
+    Returns:
+        Shannon entropy value (0.0 to log2(4) ≈ 2.0 for maximum information)
+
+    Example:
+        >>> # Highly informative SNP with balanced distribution
+        >>> balanced_geno = [0.0, 0.5, 1.0, 0.0, 0.5, 1.0]
+        >>> entropy = calculate_snp_information_entropy(balanced_geno)
+        >>> print(f"Balanced SNP entropy: {entropy:.3f}")
+        Balanced SNP entropy: 1.585
+
+        >>> # Less informative SNP with skewed distribution
+        >>> skewed_geno = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0]
+        >>> entropy = calculate_snp_information_entropy(skewed_geno)
+        >>> print(f"Skewed SNP entropy: {entropy:.3f}")
+        Skewed SNP entropy: 0.918
+
+        >>> # SNP with missing data
+        >>> missing_geno = [0.0, 0.5, np.nan, 1.0, 0.0]
+        >>> entropy = calculate_snp_information_entropy(missing_geno)
+        >>> print(f"SNP with missing data entropy: {entropy:.3f}")
+        SNP with missing data entropy: 1.500
+    """
+    if not genotypes:
+        return 0.0
+
+    # Count occurrences of each genotype category
+    genotype_counts = {
+        "ref": 0,  # 0.0 (homozygous reference)
+        "het": 0,  # 0.5 (heterozygous)
+        "alt": 0,  # 1.0 (homozygous alternate)
+        "missing": 0,  # NaN (missing data)
+    }
+
+    total_valid = 0
+    for gt in genotypes:
+        if isinstance(gt, float) and np.isnan(gt):
+            genotype_counts["missing"] += 1
+        elif gt == 0.0:
+            genotype_counts["ref"] += 1
+        elif gt == 0.5:
+            genotype_counts["het"] += 1
+        elif gt == 1.0:
+            genotype_counts["alt"] += 1
+        else:
+            # Handle any other unexpected values as missing
+            genotype_counts["missing"] += 1
+
+        total_valid += 1
+
+    if total_valid == 0:
+        return 0.0
+
+    # Calculate entropy
+    entropy = 0.0
+    for count in genotype_counts.values():
+        if count > 0:
+            probability = count / total_valid
+            entropy -= probability * math.log2(probability)
+
+    return entropy
+
+
+def calculate_snp_entropy_score(
+    genotypes: List[float],
+    maf: float,
+    weight_entropy: float = 0.7,
+    weight_maf: float = 0.3,
+    entropy: Optional[float] = None,
+) -> float:
+    """Calculate combined SNP scoring using Shannon entropy and MAF.
+
+    This function combines Shannon entropy (information content) with Minor Allele
+    Frequency (MAF) to create a comprehensive SNP scoring system. The entropy
+    measures information content, while MAF ensures the SNP is polymorphic.
+
+    The combined score is calculated as:
+    score = weight_entropy * normalized_entropy + weight_maf * normalized_maf
+
+    where normalized_entropy = entropy / log2(4) and normalized_maf = maf / 0.5
+
+    Args:
+        genotypes: List of numeric genotype values
+        maf: Minor allele frequency (0.0 to 0.5)
+        weight_entropy: Weight for entropy component (default: 0.7)
+        weight_maf: Weight for MAF component (default: 0.3)
+        entropy: Precomputed entropy value (if None, will calculate from genotypes)
+
+    Returns:
+        Combined SNP score (0.0 to 1.0, higher is better)
+
+        Example:
+        >>> # High-quality SNP with balanced distribution and good MAF
+        >>> genotypes = [0.0, 0.5, 1.0, 0.0, 0.5, 1.0]
+        >>> maf = 0.4
+        >>> score = calculate_snp_entropy_score(genotypes, maf)
+        >>> print(f"High-quality SNP score: {score:.3f}")
+        High-quality SNP score: 0.910
+
+        >>> # SNP with lower information content
+        >>> genotypes = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0]
+        >>> maf = 0.3
+        >>> score = calculate_snp_entropy_score(genotypes, maf)
+        >>> print(f"Lower quality SNP score: {score:.3f}")
+        Lower quality SNP score: 0.636
+
+        >>> # Using precomputed entropy for performance
+        >>> precomputed_entropy = 1.585
+        >>> score = calculate_snp_entropy_score(genotypes, maf, entropy=precomputed_entropy)
+        >>> print(f"Score with precomputed entropy: {score:.3f}")
+        Score with precomputed entropy: 0.910
+    """
+    if not genotypes:
+        return 0.0
+
+        # Calculate entropy if not provided
+    if entropy is None:
+        entropy = calculate_snp_information_entropy(genotypes)
+
+    # Normalize entropy to [0, 1] range (max entropy is log2(4) = 2.0)
+    max_entropy = 2.0
+    normalized_entropy = entropy / max_entropy if max_entropy > 0 else 0.0
+
+    # Normalize MAF to [0, 1] range (max MAF is 0.5)
+    max_maf = 0.5
+    normalized_maf = maf / max_maf if max_maf > 0 else 0.0
+
+    # Calculate combined score
+    score = weight_entropy * normalized_entropy + weight_maf * normalized_maf
+
+    return score

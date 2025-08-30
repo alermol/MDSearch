@@ -3,11 +3,15 @@
 import sys
 import logging
 from pathlib import Path
-from typing import List, Dict, Set, Tuple
+from typing import List, Dict, Set, Tuple, Optional, Callable
 from dataclasses import dataclass
 
 from ..utils.memory_monitor import MemoryMonitor
-from .genotype_utils import gt_to_value, calculate_maf
+from .genotype_utils import (
+    gt_to_value,
+    calculate_maf,
+    calculate_snp_information_entropy,
+)
 import pysam
 
 __all__ = [
@@ -44,6 +48,7 @@ class VCFData:
     headers: VCFHeaders
     snp_genotypes: Dict[str, SNPData]
     snp_maf_cache: Dict[str, float]
+    snp_entropy_cache: Dict[str, float]
 
 
 # SNPMetadata class removed - no longer needed without lazy loading
@@ -61,12 +66,18 @@ class VCFData:
 class VCFParser:
     """Handles VCF file parsing and validation."""
 
-    def __init__(self, memory_monitor: MemoryMonitor, logger: logging.Logger):
+    def __init__(
+        self,
+        memory_monitor: MemoryMonitor,
+        logger: logging.Logger,
+        shutdown_checker: Optional[Callable[[], bool]] = None,
+    ):
         """Initialize VCF parser with memory monitoring and logging.
 
         Args:
             memory_monitor: MemoryMonitor instance for tracking memory usage
             logger: Logger instance for output
+            shutdown_checker: Optional function to check if shutdown was requested
 
         Example:
             >>> from src.utils.memory_monitor import MemoryMonitor
@@ -77,6 +88,7 @@ class VCFParser:
         """
         self.memory_monitor = memory_monitor
         self.logger = logger
+        self.shutdown_checker = shutdown_checker
 
     def parse_and_validate(
         self, vcf_path: Path, ploidy: int, convert_het: bool
@@ -105,7 +117,7 @@ class VCFParser:
         headers = self._validate_headers(vcf_path)
 
         # Second pass: parse and validate data lines
-        snp_genotypes, snp_maf_cache = self._validate_variants(
+        snp_genotypes, snp_maf_cache, snp_entropy_cache = self._validate_variants(
             vcf_path, headers, ploidy, convert_het
         )
 
@@ -116,7 +128,10 @@ class VCFParser:
         )
 
         return VCFData(
-            headers=headers, snp_genotypes=snp_genotypes, snp_maf_cache=snp_maf_cache
+            headers=headers,
+            snp_genotypes=snp_genotypes,
+            snp_maf_cache=snp_maf_cache,
+            snp_entropy_cache=snp_entropy_cache,
         )
 
     # parse_and_validate_lazy method removed - no longer needed without lazy loading
@@ -146,12 +161,13 @@ class VCFParser:
 
     def _validate_variants(
         self, vcf_path: Path, headers: VCFHeaders, ploidy: int, convert_het: bool
-    ) -> Tuple[Dict[str, SNPData], Dict[str, float]]:
+    ) -> Tuple[Dict[str, SNPData], Dict[str, float], Dict[str, float]]:
         """Parse and validate variant lines."""
         seen_ids: Set[str] = set()
         data_line_count = 0
         snp_genotypes: Dict[str, SNPData] = {}
         snp_maf_cache: Dict[str, float] = {}
+        snp_entropy_cache: Dict[str, float] = {}
 
         with pysam.VariantFile(str(vcf_path)) as vf:
             line_number = 0
@@ -159,6 +175,14 @@ class VCFParser:
                 line_number += 1
                 # Skip header pseudo-lines; pysam yields only records
                 data_line_count += 1
+
+                # Check for graceful shutdown request
+                if self.shutdown_checker and self.shutdown_checker():
+                    if self.logger.isEnabledFor(logging.INFO):
+                        self.logger.info(
+                            "Graceful shutdown requested. Stopping VCF parsing."
+                        )
+                    break
 
                 snp_id = rec.id or ""
                 if (not snp_id) or (snp_id == "."):
@@ -220,6 +244,7 @@ class VCFParser:
                     geno.append(gt_to_value(gt, ploidy, convert_het))
 
                 maf = calculate_maf(geno, ploidy)
+                entropy = calculate_snp_information_entropy(geno)
                 snp_data = SNPData(
                     genotypes=geno,
                     sample_fields=sample_fields_list,
@@ -228,6 +253,7 @@ class VCFParser:
                 )
                 snp_genotypes[snp_id] = snp_data
                 snp_maf_cache[snp_id] = maf
+                snp_entropy_cache[snp_id] = entropy
 
         # Final validation
         if data_line_count == 0:
@@ -242,7 +268,7 @@ class VCFParser:
                 f"{len(headers.samples)} samples processed successfully."
             )
 
-        return snp_genotypes, snp_maf_cache
+        return snp_genotypes, snp_maf_cache, snp_entropy_cache
 
 
 # _build_snp_metadata method removed - no longer needed without lazy loading

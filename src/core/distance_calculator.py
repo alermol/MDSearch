@@ -1,7 +1,7 @@
 """Hamming distance calculation optimized for large datasets."""
 
 import logging
-from typing import List, Protocol, Iterable
+from typing import List, Protocol, Iterable, Optional, Callable
 
 import numpy as np
 from numpy.typing import NDArray
@@ -27,6 +27,7 @@ class DistanceCalculator:
         memory_monitor: MemoryMonitor,
         logger: logging.Logger,
         show_progress: bool = True,
+        shutdown_checker: Optional[Callable[[], bool]] = None,
     ):
         """Initialize distance calculator with memory monitoring and logging.
 
@@ -34,6 +35,7 @@ class DistanceCalculator:
             memory_monitor: MemoryMonitor instance for tracking memory usage
             logger: Logger instance for output
             show_progress: Whether to show progress bars for large datasets
+            shutdown_checker: Optional function to check if shutdown was requested
 
         Example:
             >>> from src.utils.memory_monitor import MemoryMonitor
@@ -45,6 +47,7 @@ class DistanceCalculator:
         self.memory_monitor = memory_monitor
         self.logger = logger
         self.show_progress = show_progress
+        self.shutdown_checker = shutdown_checker
 
     def calc_min_distance(self, snps: List[List[float]], *, log: bool = True) -> float:
         """Return minimal pairwise Hamming distance across samples for given SNPs.
@@ -101,6 +104,14 @@ class DistanceCalculator:
             )
 
         for i in sample_range:
+            # Check for graceful shutdown request
+            if self.shutdown_checker and self.shutdown_checker():
+                if log and self.logger.isEnabledFor(logging.INFO):
+                    self.logger.info(
+                        "Graceful shutdown requested. Stopping distance calculation."
+                    )
+                break
+
             col_i = snps_array[:, i][:, None]  # (num_snps, 1)
             rest = snps_array[:, i + 1 :]  # (num_snps, num_samples - i - 1)
             if rest.shape[1] == 0:
@@ -109,6 +120,14 @@ class DistanceCalculator:
             diffs = (col_i != rest) & valid_mask
             dists = diffs.sum(axis=0).astype(float)  # per pair distances vs column i
             pairwise_distances.extend(dists.tolist())
+
+        # Handle early exit case
+        if not pairwise_distances:
+            if log and self.logger.isEnabledFor(logging.INFO):
+                self.logger.info(
+                    "Distance calculation incomplete due to shutdown request"
+                )
+            return float("inf")  # Return infinity to indicate incomplete calculation
 
         res: NDArray[np.float64] = np.array(pairwise_distances, dtype=float)
 

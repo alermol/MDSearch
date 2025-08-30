@@ -1,6 +1,8 @@
 """Command-line interface for MDSearch."""
 
 import argparse
+import signal
+import sys
 from pathlib import Path
 import subprocess
 import platform
@@ -9,7 +11,27 @@ from .app import MDSearchApp, MDSearchConfig
 from .utils.validation import validate_cli_arguments
 from . import __version__
 
-__all__ = ["parser_resolve_path", "create_parser", "main"]
+__all__ = ["parser_resolve_path", "create_parser", "main", "is_shutdown_requested"]
+
+# Global flag for graceful shutdown
+_shutdown_requested = False
+
+
+def _signal_handler(signum: int, frame: object) -> None:
+    """Handle signals for graceful shutdown."""
+    global _shutdown_requested
+    if signum == signal.SIGINT:
+        print("\nReceived interrupt signal (Ctrl+C). Shutting down gracefully...")
+    elif signum == signal.SIGTERM:
+        print("\nReceived termination signal. Shutting down gracefully...")
+    else:
+        print(f"\nReceived signal {signum}. Shutting down gracefully...")
+    _shutdown_requested = True
+
+
+def is_shutdown_requested() -> bool:
+    """Check if graceful shutdown was requested."""
+    return _shutdown_requested
 
 
 def _get_git_commit() -> str:
@@ -217,6 +239,10 @@ def main() -> None:
         >>> main()
         >>> # Will process input.vcf and create output_1.vcf, output_2.vcf
     """
+    # Set up signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+
     parser = create_parser()
     args = parser.parse_args()
 
@@ -240,8 +266,18 @@ def main() -> None:
     )
 
     # Run application
-    app = MDSearchApp(config)
-    app.run()
+    app = MDSearchApp(config, shutdown_checker=is_shutdown_requested)
+    try:
+        app.run()
+    except KeyboardInterrupt:
+        print("\nOperation interrupted by user. Exiting gracefully.")
+        sys.exit(1)
+    except Exception as e:
+        if _shutdown_requested:
+            print(f"\nGraceful shutdown completed. Error during shutdown: {e}")
+            sys.exit(1)
+        else:
+            raise
 
 
 if __name__ == "__main__":
