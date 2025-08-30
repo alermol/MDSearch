@@ -16,21 +16,7 @@ __all__ = [
 
 
 def extract_gt(format_field: str, sample_field: str) -> str:
-    """Extract GT subfield from sample field based on format specification.
-
-    Args:
-        format_field: FORMAT column (e.g., "GT:DP:GQ")
-        sample_field: Sample-specific data (e.g., "0/0:14:94")
-
-    Returns:
-        GT value (e.g., "0/0") or "." if not found
-
-    Example:
-        >>> extract_gt("GT:DP:GQ", "0/0:14:94")
-        '0/0'
-        >>> extract_gt("DP:GQ", "14:94")
-        '.'
-    """
+    """Extract GT subfield from sample field based on format specification."""
     if "GT" not in format_field:
         return "."
     gt_index = format_field.split(":").index("GT")
@@ -39,30 +25,7 @@ def extract_gt(format_field: str, sample_field: str) -> str:
 
 
 def gt_to_value(gt: str, ploidy: Optional[int], convert_het: Optional[bool]) -> float:
-    """Convert GT string to numeric value based on ploidy and het conversion.
-
-    Args:
-        gt: Genotype string (e.g., "0/1", "1/1", "0/0")
-        ploidy: Ploidy level (e.g., 2 for diploid)
-        convert_het: Whether to convert heterozygous calls to missing
-
-    Returns:
-        Numeric genotype value (0.0, 1.0, or NaN for missing/het)
-
-    Example:
-        >>> gt_to_value("0/0", 2, False)  # Homozygous reference
-        0.0
-        >>> gt_to_value("1/1", 2, False)  # Homozygous alternate
-        1.0
-        >>> gt_to_value("0/1", 2, False)  # Heterozygous
-        0.5
-        >>> gt_to_value("0/1", 2, True)   # Het converted to missing
-        nan
-        >>> gt_to_value(".", 2, False)    # Missing
-        nan
-        >>> gt_to_value("0", 1, False)    # Haploid
-        0.0
-    """
+    """Convert GT string to numeric value based on ploidy and het conversion."""
     if "." in gt:
         return np.nan
     tokens = [t for t in gt.replace("|", "/").split("/") if t != ""]
@@ -83,28 +46,7 @@ def gt_to_value(gt: str, ploidy: Optional[int], convert_het: Optional[bool]) -> 
 
 
 def calculate_maf(geno: List[float], ploidy: Optional[int]) -> float:
-    """Calculate Minor Allele Frequency (MAF) from genotype values.
-
-    Args:
-        geno: List of numeric genotype values
-        ploidy: Ploidy level (e.g., 2 for diploid)
-
-    Returns:
-        Minor allele frequency (0.0 to 0.5)
-
-    Example:
-        >>> # Diploid genotypes: 0=ref/ref, 1=alt/alt, 0.5=ref/alt
-        >>> genotypes = [0.0, 0.5, 1.0, 0.0, 0.5]
-        >>> maf = calculate_maf(genotypes, ploidy=2)
-        >>> print(f"Minor allele frequency: {maf:.2f}")
-        Minor allele frequency: 0.30
-
-        >>> # Haploid genotypes: 0=ref, 1=alt
-        >>> hap_genotypes = [0, 1, 0, 1, 1]
-        >>> maf = calculate_maf(hap_genotypes, ploidy=1)
-        >>> print(f"Minor allele frequency: {maf:.2f}")
-        Minor allele frequency: 0.40
-    """
+    """Calculate Minor Allele Frequency (MAF) from genotype values."""
     if ploidy is None:
         return 0.0
 
@@ -129,28 +71,7 @@ def calculate_maf(geno: List[float], ploidy: Optional[int]) -> float:
 
 
 def is_het(gt: str) -> bool:
-    """Return True if GT subfield represents a heterozygous call.
-
-    Args:
-        gt: Genotype string to check
-
-    Returns:
-        True if heterozygous, False otherwise
-
-    Example:
-        >>> is_het("0/1")    # Heterozygous
-        True
-        >>> is_het("0|1")    # Phased heterozygous
-        True
-        >>> is_het("0/0")    # Homozygous reference
-        False
-        >>> is_het("1/1")    # Homozygous alternate
-        False
-        >>> is_het(".")      # Missing
-        False
-        >>> is_het("")       # Empty
-        False
-    """
+    """Return True if GT subfield represents a heterozygous call."""
     if not gt or gt == ".":
         return False
     alleles = [a for a in gt.replace("|", "/").split("/") if a != ""]
@@ -158,41 +79,7 @@ def is_het(gt: str) -> bool:
 
 
 def calculate_shannon_entropy(chromosome_counts: Dict[str, int]) -> float:
-    """Calculate Shannon entropy for chromosome distribution.
-
-    Shannon entropy measures the balance of distribution of SNPs across chromosomes.
-    Higher entropy indicates more balanced distribution, lower entropy indicates
-    concentration in fewer chromosomes.
-
-    Note: Chromosomes with 0 SNPs are included in the calculation to provide
-    a complete picture of distribution across all chromosomes in the VCF.
-
-    Args:
-        chromosome_counts: Dictionary mapping chromosome names to SNP counts
-                          (including 0 counts for chromosomes without SNPs)
-
-    Returns:
-        Shannon entropy value (0.0 to log2(num_chromosomes))
-
-    Example:
-        >>> # Balanced distribution across 3 chromosomes
-        >>> balanced = {"chr1": 10, "chr2": 10, "chr3": 10}
-        >>> entropy = calculate_shannon_entropy(balanced)
-        >>> print(f"Balanced distribution entropy: {entropy:.3f}")
-        Balanced distribution entropy: 1.585
-
-        >>> # Unbalanced distribution (concentrated in chr1)
-        >>> unbalanced = {"chr1": 25, "chr2": 3, "chr3": 2}
-        >>> entropy = calculate_shannon_entropy(unbalanced)
-        >>> print(f"Balanced distribution entropy: {entropy:.3f}")
-        Balanced distribution entropy: 0.863
-
-        >>> # Including chromosomes with 0 SNPs (from VCF headers)
-        >>> with_zeros = {"chr1": 5, "chr2": 0, "chr3": 0, "chr4": 5}
-        >>> entropy = calculate_shannon_entropy(with_zeros)
-        >>> print(f"With zero-count chromosomes: {entropy:.3f}")
-        With zero-count chromosomes: 1.000
-    """
+    """Calculate Shannon entropy for chromosome distribution."""
     if not chromosome_counts:
         return 0.0
 
@@ -210,41 +97,7 @@ def calculate_shannon_entropy(chromosome_counts: Dict[str, int]) -> float:
 
 
 def calculate_snp_information_entropy(genotypes: List[float]) -> float:
-    """Calculate Shannon entropy for SNP information content based on genotype distribution.
-
-    This function measures the information content of a SNP by calculating the Shannon
-    entropy of its genotype distribution. Higher entropy indicates more informative SNPs
-    with more balanced genotype distributions, while lower entropy indicates less
-    informative SNPs with skewed distributions.
-
-    The entropy is calculated as: H = -Σ(p_i * log2(p_i)) where p_i is the probability
-    of each genotype category (0, 0.5, 1, missing).
-
-    Args:
-        genotypes: List of numeric genotype values (0.0, 0.5, 1.0, or NaN for missing)
-
-    Returns:
-        Shannon entropy value (0.0 to log2(4) ≈ 2.0 for maximum information)
-
-    Example:
-        >>> # Highly informative SNP with balanced distribution
-        >>> balanced_geno = [0.0, 0.5, 1.0, 0.0, 0.5, 1.0]
-        >>> entropy = calculate_snp_information_entropy(balanced_geno)
-        >>> print(f"Balanced SNP entropy: {entropy:.3f}")
-        Balanced SNP entropy: 1.585
-
-        >>> # Less informative SNP with skewed distribution
-        >>> skewed_geno = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0]
-        >>> entropy = calculate_snp_information_entropy(skewed_geno)
-        >>> print(f"Skewed SNP entropy: {entropy:.3f}")
-        Skewed SNP entropy: 0.918
-
-        >>> # SNP with missing data
-        >>> missing_geno = [0.0, 0.5, np.nan, 1.0, 0.0]
-        >>> entropy = calculate_snp_information_entropy(missing_geno)
-        >>> print(f"SNP with missing data entropy: {entropy:.3f}")
-        SNP with missing data entropy: 1.500
-    """
+    """Calculate Shannon entropy for SNP information content based on genotype distribution."""
     if not genotypes:
         return 0.0
 
@@ -292,48 +145,7 @@ def calculate_snp_entropy_score(
     weight_maf: float = 0.3,
     entropy: Optional[float] = None,
 ) -> float:
-    """Calculate combined SNP scoring using Shannon entropy and MAF.
-
-    This function combines Shannon entropy (information content) with Minor Allele
-    Frequency (MAF) to create a comprehensive SNP scoring system. The entropy
-    measures information content, while MAF ensures the SNP is polymorphic.
-
-    The combined score is calculated as:
-    score = weight_entropy * normalized_entropy + weight_maf * normalized_maf
-
-    where normalized_entropy = entropy / log2(4) and normalized_maf = maf / 0.5
-
-    Args:
-        genotypes: List of numeric genotype values
-        maf: Minor allele frequency (0.0 to 0.5)
-        weight_entropy: Weight for entropy component (default: 0.7)
-        weight_maf: Weight for MAF component (default: 0.3)
-        entropy: Precomputed entropy value (if None, will calculate from genotypes)
-
-    Returns:
-        Combined SNP score (0.0 to 1.0, higher is better)
-
-        Example:
-        >>> # High-quality SNP with balanced distribution and good MAF
-        >>> genotypes = [0.0, 0.5, 1.0, 0.0, 0.5, 1.0]
-        >>> maf = 0.4
-        >>> score = calculate_snp_entropy_score(genotypes, maf)
-        >>> print(f"High-quality SNP score: {score:.3f}")
-        High-quality SNP score: 0.910
-
-        >>> # SNP with lower information content
-        >>> genotypes = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0]
-        >>> maf = 0.3
-        >>> score = calculate_snp_entropy_score(genotypes, maf)
-        >>> print(f"Lower quality SNP score: {score:.3f}")
-        Lower quality SNP score: 0.636
-
-        >>> # Using precomputed entropy for performance
-        >>> precomputed_entropy = 1.585
-        >>> score = calculate_snp_entropy_score(genotypes, maf, entropy=precomputed_entropy)
-        >>> print(f"Score with precomputed entropy: {score:.3f}")
-        Score with precomputed entropy: 0.910
-    """
+    """Calculate combined SNP scoring using Shannon entropy and MAF."""
     if not genotypes:
         return 0.0
 

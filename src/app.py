@@ -2,54 +2,27 @@
 
 import logging
 from pathlib import Path
-from typing import Optional, Union, Callable, List
+from typing import Optional, Union, Callable
 from dataclasses import dataclass
-import datetime
-import platform
-import subprocess
 import time
 
-from .core import VCFParser, DistanceCalculator, SNPSelector, VCFData
-from .io import VCFWriter, WriteConfig, SummaryWriter, RunInfoWriter, StructureInfoWriter
+from .core import VCFParser, DistanceCalculator, SNPSelector
+from .io import (
+    VCFWriter,
+    WriteConfig,
+    SummaryWriter,
+    RunInfoWriter,
+    StructureInfoWriter,
+)
 from .utils import MemoryMonitor, setup_logger
 from .utils import ensure_variant_index
-from .version import __version__ as mdsearch_version
 
 __all__ = ["MDSearchConfig", "MDSearchApp"]
 
 
 @dataclass
 class MDSearchConfig:
-    """Configuration for MDSearch application.
-
-    Attributes:
-        input_vcf: Path to input VCF file
-        output_prefix: Path to output folder (will be created if absent)
-        ploidy: Ploidy level (e.g., 2 for diploid)
-        min_distance: Minimum Hamming distance required
-        convert_het: Whether to convert heterozygous calls to missing
-        n_sets: Number of alternative SNP sets to generate (0 for unlimited)
-        verbose: Whether to enable verbose logging
-        log_level: Logging level override
-        log_format: Logging format (text or json)
-        weight_entropy: Weight for entropy component in SNP scoring (0.0 to 1.0)
-        weight_maf: Weight for MAF component in SNP scoring (0.0 to 1.0)
-        input_format: Input format identifier (auto, v, z, u, b)
-        output_format: Output format identifier (v, z, u, b)
-
-    Example:
-        >>> from pathlib import Path
-        >>> config = MDSearchConfig(
-        ...     input_vcf=Path("sample.vcf"),
-        ...     output_prefix=Path("output"),
-        ...     ploidy=2,
-        ...     min_distance=3,
-        ...     n_sets=2,
-        ...     # lazy_loading removed
-        ... )
-        >>> print(f"Input: {config.input_vcf}, Output folder: {config.output_prefix}")
-        Input: sample.vcf, Output folder: output
-    """
+    """Configuration for MDSearch application."""
 
     input_vcf: Path
     output_prefix: Path
@@ -62,9 +35,8 @@ class MDSearchConfig:
     log_format: str = "text"
     weight_entropy: float = 0.5
     weight_maf: float = 0.5
-    # Lazy loading fields removed - no longer needed
-    input_format: str = "auto"  # one of: auto|v|z|u|b (bcftools letters)
-    output_format: str = "v"  # one of: v|z|u|b (bcftools letters)
+    input_format: str = "auto"
+    output_format: str = "v"
 
 
 class MDSearchApp:
@@ -75,26 +47,7 @@ class MDSearchApp:
         config: MDSearchConfig,
         shutdown_checker: Optional[Callable[[], bool]] = None,
     ):
-        """Initialize MDSearch application with configuration.
-
-        Args:
-            config: Application configuration
-            shutdown_checker: Optional function to check if shutdown was requested
-
-        Example:
-            >>> from src.app import MDSearchApp, MDSearchConfig
-            >>> from pathlib import Path
-            >>>
-            >>> config = MDSearchConfig(
-            ...     input_vcf=Path("input.vcf"),
-            ...     output_prefix=Path("output"),
-            ...     ploidy=2,
-            ...     min_distance=3
-            ... )
-            >>> app = MDSearchApp(config)
-            >>> print(f"Initialized with {config.ploidy}-ploidy analysis")
-            Initialized with 2-ploidy analysis
-        """
+        """Initialize MDSearch application with configuration."""
         self.config = config
         self.shutdown_checker = shutdown_checker
         self.logger = setup_logger(
@@ -123,29 +76,11 @@ class MDSearchApp:
         # Initial memory check
         self.memory_monitor.check_memory_and_warn("initialization")
 
-
-
-
-
     def run(self) -> None:
-        """Execute the complete MDSearch pipeline.
-
-        This method orchestrates the entire workflow:
-        1. Index verification for compressed inputs
-        2. VCF parsing and validation
-        3. SNP set selection and optimization
-        4. Output file generation
-        5. Summary statistics (if requested)
-
-        Example:
-            >>> app = MDSearchApp(config)
-            >>> app.run()
-            >>> # Will process VCF, select SNPs, and generate output files
-        """
-        # Record start time for execution time tracking
+        """Execute the complete MDSearch pipeline."""
         start_time = time.time()
-        
-        # 1. Ensure index exists for compressed inputs (VCF.gz/BCF)
+
+        # Ensure index exists for compressed inputs
         try:
             ensure_variant_index(
                 self.config.input_vcf, self.config.input_format, self.logger
@@ -155,19 +90,19 @@ class MDSearchApp:
                 self.logger.error(f"Failed to ensure variant index: {e}")
             raise
 
-        # 2. Parse and validate VCF
+        # Parse and validate VCF
         vcf_data = self.vcf_parser.parse_and_validate(
             self.config.input_vcf, self.config.ploidy, self.config.convert_het
         )
 
-        # 3. Search for optimal SNP sets
+        # Search for optimal SNP sets
         snp_sets = self.snp_selector.search_optimal_sets(
             vcf_data,
             self.config.min_distance,
             self.config.n_sets,
         )
 
-        # 5. Write output files
+        # Write output files
         if self.logger.isEnabledFor(logging.INFO):
             self.logger.info("Writing selected SNPs in VCF...")
 
@@ -183,7 +118,7 @@ class MDSearchApp:
         if self.logger.isEnabledFor(logging.INFO):
             self.logger.info("Done")
 
-        # 6. Write summary (always created)
+        # Write summary
         summary_path = self.config.output_prefix / "summary.tsv"
         self.summary_writer.write_summary(
             snp_sets, self.config.output_prefix, summary_path, vcf_data
@@ -191,21 +126,21 @@ class MDSearchApp:
         if self.logger.isEnabledFor(logging.INFO):
             self.logger.info(f"Summary TSV written: {summary_path}")
 
-        # 6.5. Write run information
+        # Write run information
         config_data = {
-            'input_vcf': self.config.input_vcf,
-            'input_format': self.config.input_format,
-            'output_prefix': self.config.output_prefix,
-            'output_format': self.config.output_format,
-            'ploidy': self.config.ploidy,
-            'min_distance': self.config.min_distance,
-            'convert_het': self.config.convert_het,
-            'n_sets': self.config.n_sets,
-            'weight_entropy': self.config.weight_entropy,
-            'weight_maf': self.config.weight_maf,
-            'verbose': self.config.verbose,
-            'log_level': self.config.log_level,
-            'log_format': self.config.log_format,
+            "input_vcf": self.config.input_vcf,
+            "input_format": self.config.input_format,
+            "output_prefix": self.config.output_prefix,
+            "output_format": self.config.output_format,
+            "ploidy": self.config.ploidy,
+            "min_distance": self.config.min_distance,
+            "convert_het": self.config.convert_het,
+            "n_sets": self.config.n_sets,
+            "weight_entropy": self.config.weight_entropy,
+            "weight_maf": self.config.weight_maf,
+            "verbose": self.config.verbose,
+            "log_level": self.config.log_level,
+            "log_format": self.config.log_format,
         }
         run_info_path = self.run_info_writer.write_run_info(
             self.config.output_prefix, vcf_data, snp_sets, config_data, start_time
@@ -213,14 +148,16 @@ class MDSearchApp:
         if self.logger.isEnabledFor(logging.INFO):
             self.logger.info(f"Run information written to: {run_info_path}")
 
-        # 6.6. Write output directory structure information
+        # Write output directory structure information
         structure_info_path = self.structure_info_writer.write_structure_info(
             self.config.output_prefix, snp_sets
         )
         if self.logger.isEnabledFor(logging.INFO):
-            self.logger.info(f"Output structure information written to: {structure_info_path}")
+            self.logger.info(
+                f"Output structure information written to: {structure_info_path}"
+            )
 
-        # 7. Find best SNP set based on Shannon entropy and copy to best_set.vcf
+        # Find best SNP set and copy to best_set.vcf
         if snp_sets:
             best_set_index, best_snp_set, best_entropy = (
                 self.summary_writer.find_best_snp_set(snp_sets, vcf_data)
@@ -244,11 +181,8 @@ class MDSearchApp:
                 best_set_path = self.config.output_prefix / "best_set.vcf"
                 self.logger.info(f"Best SNP set copied to: {best_set_path}")
 
-        # Final memory usage summary and cache statistics
+        # Final memory usage summary
         self.memory_monitor.check_memory_and_warn("processing complete")
         if self.logger.isEnabledFor(logging.INFO):
             final_memory = self.memory_monitor.get_memory_usage_mb()
             self.logger.info(f"Final memory usage: {final_memory:.1f}MB")
-
-
-# Lazy loading cache statistics removed - no longer needed

@@ -33,12 +33,12 @@ class RunInfoWriter:
         self.memory_monitor = memory_monitor
 
     def write_run_info(
-        self, 
-        output_prefix: Path, 
-        vcf_data: VCFData, 
+        self,
+        output_prefix: Path,
+        vcf_data: VCFData,
         snp_sets: List[List[str]],
         config_data: dict,
-        start_time: float = None
+        start_time: float = None,
     ) -> None:
         """Write comprehensive run information to a file.
 
@@ -80,7 +80,7 @@ class RunInfoWriter:
         if start_time is not None:
             end_time = time.time()
             execution_seconds = end_time - start_time
-            
+
             # Format execution time in human-readable format
             if execution_seconds < 60:
                 execution_time_info = f"{execution_seconds:.2f} seconds"
@@ -92,7 +92,9 @@ class RunInfoWriter:
                 hours = int(execution_seconds // 3600)
                 minutes = int((execution_seconds % 3600) // 60)
                 seconds = execution_seconds % 60
-                execution_time_info = f"{hours} hours {minutes} minutes {seconds:.1f} seconds"
+                execution_time_info = (
+                    f"{hours} hours {minutes} minutes {seconds:.1f} seconds"
+                )
 
         # Get comprehensive memory information (after run completion)
         memory_summary = self.memory_monitor.get_memory_summary()
@@ -113,48 +115,52 @@ class RunInfoWriter:
             "",
             f"Run timestamp: {timestamp}",
         ]
-        
+
         # Add execution time if available
         if execution_time_info:
-            lines.extend([
-                f"Execution time: {execution_time_info}",
+            lines.extend(
+                [
+                    f"Execution time: {execution_time_info}",
+                    "",
+                ]
+            )
+
+        lines.extend(
+            [
                 "",
-            ])
-        
-        lines.extend([
-            "",
-            "System Memory Information:",
-            f"  Current process memory: {memory_summary['current_mb']:.1f} MB",
-            f"  Peak process memory: {memory_summary['peak_mb']:.1f} MB",
-            f"  Available system memory: {memory_summary['available_mb']:.1f} MB",
-            f"  Total system memory: {memory_summary['total_mb']:.1f} MB",
-            f"  Memory warning threshold: {memory_summary['warning_threshold_mb']:.1f} MB ({threshold_info['warning_percent']:.0f}%)",
-            f"  Critical threshold: {memory_summary['critical_threshold_mb']:.1f} MB ({threshold_info['critical_percent']:.0f}%)",
-            f"  Estimated genotype matrix memory: {estimated_matrix_mb:.1f} MB",
-            "",
-            "Input Configuration:",
-            f"  Input VCF: {config_data['input_vcf']}",
-            f"  Input format: {config_data['input_format']}",
-            f"  Output directory: {config_data['output_prefix']}",
-            f"  Output format: {config_data['output_format']}",
-            f"  Ploidy: {config_data['ploidy']}",
-            f"  Minimum distance: {config_data['min_distance']}",
-            f"  Convert heterozygous: {config_data['convert_het']}",
-            f"  Target number of sets: {config_data['n_sets']}",
-            f"  Weight entropy: {config_data['weight_entropy']}",
-            f"  Weight MAF: {config_data['weight_maf']}",
-            f"  Verbose: {config_data['verbose']}",
-            f"  Log level: {config_data['log_level'] or 'default'}",
-            f"  Log format: {config_data['log_format']}",
-            "",
-            "Input Data Summary:",
-            f"  Number of samples: {len(vcf_data.headers.samples)}",
-            f"  Number of SNPs: {len(vcf_data.snp_genotypes)}",
-            f"  Chromosomes: {', '.join(sorted(vcf_data.headers.contigs))}",
-            "",
-            "Output Summary:",
-            f"  Number of SNP sets found: {len(snp_sets)}",
-        ])
+                "System Memory Information:",
+                f"  Current process memory: {memory_summary['current_mb']:.1f} MB",
+                f"  Peak process memory: {memory_summary['peak_mb']:.1f} MB",
+                f"  Available system memory: {memory_summary['available_mb']:.1f} MB",
+                f"  Total system memory: {memory_summary['total_mb']:.1f} MB",
+                f"  Memory warning threshold: {memory_summary['warning_threshold_mb']:.1f} MB ({threshold_info['warning_percent']:.0f}%)",
+                f"  Critical threshold: {memory_summary['critical_threshold_mb']:.1f} MB ({threshold_info['critical_percent']:.0f}%)",
+                f"  Estimated genotype matrix memory: {estimated_matrix_mb:.1f} MB",
+                "",
+                "Input Configuration:",
+                f"  Input VCF: {config_data['input_vcf']}",
+                f"  Input format: {config_data['input_format']}",
+                f"  Output directory: {config_data['output_prefix']}",
+                f"  Output format: {config_data['output_format']}",
+                f"  Ploidy: {config_data['ploidy']}",
+                f"  Minimum distance: {config_data['min_distance']}",
+                f"  Convert heterozygous: {config_data['convert_het']}",
+                f"  Target number of sets: {config_data['n_sets']}",
+                f"  Weight entropy: {config_data['weight_entropy']}",
+                f"  Weight MAF: {config_data['weight_maf']}",
+                f"  Verbose: {config_data['verbose']}",
+                f"  Log level: {config_data['log_level'] or 'default'}",
+                f"  Log format: {config_data['log_format']}",
+                "",
+                "Input Data Summary:",
+                f"  Number of samples: {len(vcf_data.headers.samples)}",
+                f"  Number of SNPs: {len(vcf_data.snp_genotypes)}",
+                f"  Chromosomes: {', '.join(sorted(vcf_data.headers.contigs))}",
+                "",
+                "Output Summary:",
+                f"  Number of SNP sets found: {len(snp_sets)}",
+            ]
+        )
 
         # Add details for each SNP set
         for i, snp_set in enumerate(snp_sets, 1):

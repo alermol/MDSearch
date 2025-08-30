@@ -11,8 +11,6 @@ from .vcf_parser import VCFData
 from .genotype_utils import calculate_snp_entropy_score
 from ..utils.memory_monitor import MemoryMonitor
 
-# VCFDataType alias removed - no longer needed without lazy loading
-
 __all__ = ["BuildError", "SNPSelector"]
 
 
@@ -34,25 +32,7 @@ class SNPSelector:
         weight_entropy: float = 0.5,
         weight_maf: float = 0.5,
     ):
-        """Initialize SNP selector with required components.
-
-        Args:
-            distance_calculator: DistanceCalculator instance for computing distances
-            memory_monitor: MemoryMonitor instance for tracking memory usage
-            logger: Logger instance for output
-            shutdown_checker: Optional function to check if shutdown was requested
-            weight_entropy: Weight for entropy component in SNP scoring (0.0 to 1.0)
-            weight_maf: Weight for MAF component in SNP scoring (0.0 to 1.0)
-
-        Example:
-            >>> from src.core.distance_calculator import DistanceCalculator
-            >>> from src.utils.memory_monitor import MemoryMonitor
-            >>> from src.utils.logging_setup import setup_logger
-            >>> logger = setup_logger("snp_selector")
-            >>> memory_monitor = MemoryMonitor(logger)
-            >>> distance_calc = DistanceCalculator(memory_monitor, logger)
-            >>> selector = SNPSelector(distance_calc, memory_monitor, logger)
-        """
+        """Initialize SNP selector with required components."""
         self.distance_calc = distance_calculator
         self.memory_monitor = memory_monitor
         self.logger = logger
@@ -63,25 +43,7 @@ class SNPSelector:
     def select_first_discriminatory_snp(
         self, vcf_data: VCFData, excluded: Optional[Set[str]] = None
     ) -> str:
-        """Select SNP with highest entropy score not in excluded; tie-break by SNP ID.
-
-        Args:
-            vcf_data: VCF data containing SNP information
-            excluded: Set of SNP IDs to exclude from selection
-
-        Returns:
-            SNP ID with highest entropy score (or lexicographically first if tied)
-
-        Raises:
-            BuildError: If no SNPs available after exclusions
-
-        Example:
-            >>> selector = SNPSelector(distance_calc, memory_monitor, logger)
-            >>> excluded_snps = {"rs999"}  # Exclude specific SNP
-            >>> first_snp = selector.select_first_snp(vcf_data, excluded=excluded_snps)
-            >>> print(f"Selected first SNP: {first_snp}")
-            Selected first SNP: rs123
-        """
+        """Select SNP with highest entropy score not in excluded; tie-break by SNP ID."""
         excluded = excluded or set()
         candidates = []
 
@@ -113,28 +75,7 @@ class SNPSelector:
         min_distance: int,
         excluded: Optional[Set[str]] = None,
     ) -> List[str]:
-        """Greedily build initial SNP set maximizing entropy score under exclusions.
-
-        Args:
-            vcf_data: VCF data containing SNP information
-            min_distance: Minimum Hamming distance required between samples
-            excluded: Set of SNP IDs to exclude from selection
-            log_start: Whether to log start of primary selection
-            log_distances: Whether to log distance calculations
-
-        Returns:
-            List of SNP IDs forming primary set
-
-        Example:
-            >>> selector = SNPSelector(distance_calc, memory_monitor, logger)
-            >>> primary_set = selector.build_discriminatory_set(
-            ...     vcf_data, min_distance=3, excluded={"rs999"}
-            ... )
-            >>> print(f"Primary set contains {len(primary_set)} SNPs")
-            >>> print(f"SNPs: {', '.join(primary_set)}")
-            Primary set contains 5 SNPs
-            SNPs: rs123, rs456, rs789, rs101, rs202
-        """
+        """Greedily build initial SNP set maximizing entropy score under exclusions."""
         excluded = excluded or set()
         current_snp_set: List[str] = []
         current_snps_geno: List[List[float]] = []
@@ -194,27 +135,7 @@ class SNPSelector:
     def get_snp_entropy_scores(
         self, vcf_data: VCFData, excluded: Optional[Set[str]] = None
     ) -> List[tuple[str, float, float, float]]:
-        """Get entropy scores for all SNPs in the dataset.
-
-        This method calculates and returns entropy scores for all SNPs, which can be
-        useful for analysis, debugging, and understanding the information content
-        distribution across the dataset.
-
-        Args:
-            vcf_data: VCF data containing SNP information
-            excluded: Set of SNP IDs to exclude from scoring
-
-        Returns:
-            List of tuples containing (SNP_ID, entropy_score, maf, raw_entropy)
-
-        Example:
-            >>> selector = SNPSelector(distance_calc, memory_monitor, logger)
-            >>> scores = selector.get_snp_entropy_scores(vcf_data, excluded={"rs999"})
-            >>> for snp_id, score, maf, entropy in sorted(scores, key=lambda x: -x[1])[:5]:
-            ...     print(f"{snp_id}: score={score:.3f}, maf={maf:.3f}, entropy={entropy:.3f}")
-            rs123: score=0.910, maf=0.400, entropy=1.585
-            rs456: score=0.863, maf=0.350, entropy=1.500
-        """
+        """Get entropy scores for all SNPs in the dataset."""
         excluded = excluded or set()
         scores = []
 
@@ -239,32 +160,7 @@ class SNPSelector:
         min_distance: int,
         log_start: bool = True,
     ) -> List[str]:
-        """Greedy backward elimination preserving minimal distance constraint.
-
-        Optimized to avoid repeated distance recomputation by precomputing per-SNP
-        contributions to pairwise distances across the upper triangle and updating
-        totals incrementally when SNPs are removed.
-
-        Args:
-            snp_set: List of SNP IDs to optimize
-            vcf_data: VCF data containing SNP information
-            min_distance: Minimum Hamming distance to maintain
-            log_start: Whether to log start of elimination process
-
-        Returns:
-            Optimized list of SNP IDs with minimal distance preserved
-
-        Example:
-            >>> selector = SNPSelector(distance_calc, memory_monitor, logger)
-            >>> primary_set = ["rs1", "rs2", "rs3", "rs4", "rs5"]
-            >>> optimized_set = selector.deterministic_eliminate(
-            ...     primary_set, vcf_data, min_distance=3
-            ... )
-            >>> print(f"Optimized from {len(primary_set)} to {len(optimized_set)} SNPs")
-            >>> print(f"Removed: {set(primary_set) - set(optimized_set)}")
-            Optimized from 5 to 3 SNPs
-            Removed: {'rs2', 'rs4'}
-        """
+        """Greedy backward elimination preserving minimal distance constraint."""
         if log_start and self.logger.isEnabledFor(logging.INFO):
             self.logger.info("Backward one-by-one elimination...")
 
@@ -333,12 +229,7 @@ class SNPSelector:
         min_distance: int,
         n_sets: Union[int, str],
     ) -> List[List[str]]:
-        """Find all perfectly orthogonal (disjoint) minimal discriminating SNP sets.
-
-        This implementation enumerates disjoint minimal sets across the entire VCF.
-        When n_sets is 0 (unlimited mode), it finds all possible disjoint sets.
-        When n_sets > 0, it finds up to that many sets.
-        """
+        """Find all perfectly orthogonal (disjoint) minimal discriminating SNP sets."""
         # Convert n_sets to int for internal use
         n_sets_int = int(n_sets) if isinstance(n_sets, str) else n_sets
 

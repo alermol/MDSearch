@@ -51,18 +51,6 @@ class VCFData:
     snp_entropy_cache: Dict[str, float]
 
 
-# SNPMetadata class removed - no longer needed without lazy loading
-
-
-# LRUCache class removed - no longer needed without lazy loading
-
-
-# LazyVCFData class removed - no longer needed without lazy loading
-
-
-# LazyGenotypesDict class removed - no longer needed without lazy loading
-
-
 class VCFParser:
     """Handles VCF file parsing and validation."""
 
@@ -72,20 +60,7 @@ class VCFParser:
         logger: logging.Logger,
         shutdown_checker: Optional[Callable[[], bool]] = None,
     ):
-        """Initialize VCF parser with memory monitoring and logging.
-
-        Args:
-            memory_monitor: MemoryMonitor instance for tracking memory usage
-            logger: Logger instance for output
-            shutdown_checker: Optional function to check if shutdown was requested
-
-        Example:
-            >>> from src.utils.memory_monitor import MemoryMonitor
-            >>> from src.utils.logging_setup import setup_logger
-            >>> logger = setup_logger("vcf_parser")
-            >>> memory_monitor = MemoryMonitor(logger)
-            >>> parser = VCFParser(memory_monitor, logger)
-        """
+        """Initialize VCF parser with memory monitoring and logging."""
         self.memory_monitor = memory_monitor
         self.logger = logger
         self.shutdown_checker = shutdown_checker
@@ -93,26 +68,7 @@ class VCFParser:
     def parse_and_validate(
         self, vcf_path: Path, ploidy: int, convert_het: bool
     ) -> VCFData:
-        """Parse VCF file and return structured data (loads all SNPs into memory).
-
-        Args:
-            vcf_path: Path to VCF file to parse
-            ploidy: Ploidy level (e.g., 2 for diploid)
-            convert_het: Whether to convert heterozygous calls to missing
-
-        Returns:
-            VCFData containing all SNP information
-
-        Example:
-            >>> parser = VCFParser(memory_monitor, logger)
-            >>> vcf_data = parser.parse_and_validate(
-            ...     Path("sample.vcf"), ploidy=2, convert_het=False
-            ... )
-            >>> print(f"Parsed {len(vcf_data.snp_genotypes)} SNPs")
-            >>> print(f"Found {len(vcf_data.headers.samples)} samples")
-            Parsed 1000 SNPs
-            Found 50 samples
-        """
+        """Parse VCF file and return structured data (loads all SNPs into memory)."""
         # First pass: validate headers and count samples
         headers = self._validate_headers(vcf_path)
 
@@ -133,8 +89,6 @@ class VCFParser:
             snp_maf_cache=snp_maf_cache,
             snp_entropy_cache=snp_entropy_cache,
         )
-
-    # parse_and_validate_lazy method removed - no longer needed without lazy loading
 
     def _validate_headers(self, vcf_path: Path) -> VCFHeaders:
         """Validate VCF headers and extract sample information."""
@@ -269,6 +223,3 @@ class VCFParser:
             )
 
         return snp_genotypes, snp_maf_cache, snp_entropy_cache
-
-
-# _build_snp_metadata method removed - no longer needed without lazy loading

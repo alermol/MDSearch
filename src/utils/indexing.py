@@ -11,32 +11,11 @@ __all__ = ["ensure_variant_index", "infer_format_letter"]
 
 
 def infer_format_letter(path: Path) -> str:
-    """Infer bcftools-style format letter from filename.
-
-    Returns one of: v (VCF), z (VCF.gz), u/b (BCF). Defaults to 'v'.
-
-    Args:
-        path: Path to variant file
-
-    Returns:
-        Single character format identifier
-
-    Example:
-        >>> from pathlib import Path
-        >>> infer_format_letter(Path("sample.vcf"))
-        'v'
-        >>> infer_format_letter(Path("sample.vcf.gz"))
-        'z'
-        >>> infer_format_letter(Path("sample.bcf"))
-        'b'
-        >>> infer_format_letter(Path("unknown.txt"))
-        'v'
-    """
+    """Infer bcftools-style format letter from filename."""
     name = str(path)
     if name.endswith(".vcf.gz") or name.endswith(".vcfz"):
         return "z"
     if name.endswith(".bcf"):
-        # Compression type isn't encoded in extension; use 'b' as default
         return "b"
     if name.endswith(".vcf"):
         return "v"
@@ -44,7 +23,6 @@ def infer_format_letter(path: Path) -> str:
     try:
         with pysam.VariantFile(name) as vf:
             text_header = str(vf.header)
-            # Heuristic: bgzipped VCFs usually need tabix; plain VCFs are not compressed
             if name.endswith(".vcf.gz"):
                 return "z"
             if "BCF" in text_header:
@@ -57,33 +35,7 @@ def infer_format_letter(path: Path) -> str:
 def ensure_variant_index(
     vpath: Path, fmt_letter: Optional[str], logger: Optional[logging.Logger]
 ) -> None:
-    """Ensure an index exists for the given variant file.
-
-    - For 'z' (VCF.gz): ensure .csi exists; create CSI index with bcftools if missing
-    - For 'b'/'u' (BCF): ensure .csi exists; create with bcftools if missing
-    - For 'v' (VCF): no index is created; log and return
-    - For 'auto': infer from extension
-
-    Args:
-        vpath: Path to variant file
-        fmt_letter: Format identifier (v, z, u, b, or auto)
-        logger: Optional logger for output
-
-    Raises:
-        RuntimeError: If index creation fails
-
-    Example:
-        >>> from pathlib import Path
-        >>> from src.utils.logging_setup import setup_logger
-        >>> logger = setup_logger("indexing")
-        >>> vcf_path = Path("sample.vcf.gz")
-        >>> ensure_variant_index(vcf_path, "z", logger)
-        >>> # Will create .csi index if missing
-
-        >>> # Auto-detect format
-        >>> ensure_variant_index(vcf_path, "auto", logger)
-        >>> # Will infer format and create appropriate index
-    """
+    """Ensure an index exists for the given variant file."""
     fmt = fmt_letter or "auto"
     if fmt == "auto":
         fmt = infer_format_letter(vpath)
@@ -110,20 +62,7 @@ def ensure_variant_index(
 
 
 def _run_bcftools_index(vpath: Path, logger: Optional[logging.Logger]) -> None:
-    """Run bcftools index --csi on the given file, raising on failure.
-
-    Args:
-        vpath: Path to variant file to index
-        logger: Optional logger for output
-
-    Raises:
-        RuntimeError: If bcftools is not found or indexing fails
-
-    Example:
-        >>> from pathlib import Path
-        >>> _run_bcftools_index(Path("sample.vcf.gz"), logger)
-        >>> # Will create sample.vcf.gz.csi index file
-    """
+    """Run bcftools index --csi on the given file, raising on failure."""
     cmd = ["bcftools", "index", "--csi", "-f", str(vpath)]
     try:
         res = subprocess.run(
