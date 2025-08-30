@@ -153,6 +153,24 @@ def create_parser() -> argparse.ArgumentParser:
         type=str,
         metavar="N_SETS",
     )
+    grp_select.add_argument(
+        "-we",
+        "--weight-entropy",
+        dest="weight_entropy",
+        help="Weight for entropy component in SNP scoring (0.0 to 1.0)",
+        default=0.5,
+        type=float,
+        metavar="WEIGHT_ENTROPY",
+    )
+    grp_select.add_argument(
+        "-wm",
+        "--weight-maf",
+        dest="weight_maf",
+        help="Weight for MAF component in SNP scoring (0.0 to 1.0)",
+        default=0.5,
+        type=float,
+        metavar="WEIGHT_MAF",
+    )
 
     # Group: Output & formatting
     grp_output = parser.add_argument_group("Output", "Output formatting and summary")
@@ -260,6 +278,8 @@ def main() -> None:
         verbose=not args.quiet,
         log_level=args.log_level,
         log_format=args.log_format,
+        weight_entropy=args.weight_entropy,
+        weight_maf=args.weight_maf,
         # Lazy loading arguments removed - no longer needed
         input_format=args.input_format,
         output_format=args.output_format,

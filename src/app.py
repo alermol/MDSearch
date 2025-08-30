@@ -27,6 +27,8 @@ class MDSearchConfig:
         verbose: Whether to enable verbose logging
         log_level: Logging level override
         log_format: Logging format (text or json)
+        weight_entropy: Weight for entropy component in SNP scoring (0.0 to 1.0)
+        weight_maf: Weight for MAF component in SNP scoring (0.0 to 1.0)
         input_format: Input format identifier (auto, v, z, u, b)
         output_format: Output format identifier (v, z, u, b)
 
@@ -53,6 +55,8 @@ class MDSearchConfig:
     verbose: bool = True
     log_level: Optional[str] = None
     log_format: str = "text"
+    weight_entropy: float = 0.5
+    weight_maf: float = 0.5
     # Lazy loading fields removed - no longer needed
     input_format: str = "auto"  # one of: auto|v|z|u|b (bcftools letters)
     output_format: str = "v"  # one of: v|z|u|b (bcftools letters)
@@ -99,7 +103,12 @@ class MDSearchApp:
             self.memory_monitor, self.logger, shutdown_checker=shutdown_checker
         )
         self.snp_selector = SNPSelector(
-            self.distance_calc, self.memory_monitor, self.logger, shutdown_checker
+            self.distance_calc,
+            self.memory_monitor,
+            self.logger,
+            shutdown_checker,
+            weight_entropy=self.config.weight_entropy,
+            weight_maf=self.config.weight_maf,
         )
         self.vcf_writer = VCFWriter()
         self.summary_writer = SummaryWriter(self.distance_calc)

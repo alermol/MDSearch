@@ -26,6 +26,8 @@ def run_mdsearch(ivcf: Path, out_prefix: Path, **kwargs):
         "min_dist": "-md",
         "convert_het": "-ch",
         "n_sets": "-ns",
+        "weight_entropy": "-we",
+        "weight_maf": "-wm",
     }
     for k, v in kwargs.items():
         flag = cli_map[k]
@@ -976,3 +978,58 @@ def test_summary_tsv_emitted_and_correct(tmp_path: Path):
     assert cols[1] == "minimal_set_1.vcf"
     assert cols[2] == "2"
     assert int(cols[3]) >= 1
+
+
+def test_weight_parameters_work_correctly(tmp_path: Path):
+    """Test that weight_entropy and weight_maf parameters are accepted and work."""
+    samples = ["S1", "S2", "S3", "S4"]
+    variants = [
+        {
+            "chrom": "1",
+            "pos": 100,
+            "id": "A",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/0", "0/0", "1/1", "1/1"],
+        },
+        {
+            "chrom": "1",
+            "pos": 200,
+            "id": "B",
+            "ref": "A",
+            "alt": "T",
+            "genotypes": ["0/0", "1/1", "0/0", "1/1"],
+        },
+    ]
+    orig = tmp_path / "orig_weights.vcf"
+    write_vcf(orig, samples, variants)
+    out_prefix = tmp_path / "out_weights"
+
+    # Test with custom weights
+    run_mdsearch(
+        orig,
+        out_prefix,
+        ploidy=2,
+        min_dist=1,
+        n_sets=1,
+        weight_entropy=0.8,
+        weight_maf=0.2,
+    )
+
+    # Verify output was created
+    produced = get_mdss_vcf_path(out_prefix, 1)
+    assert produced.exists()
+
+    # Test with default weights (0.5, 0.5)
+    out_prefix_default = tmp_path / "out_weights_default"
+    run_mdsearch(
+        orig,
+        out_prefix_default,
+        ploidy=2,
+        min_dist=1,
+        n_sets=1,
+    )
+
+    # Verify output was created
+    produced_default = get_mdss_vcf_path(out_prefix_default, 1)
+    assert produced_default.exists()

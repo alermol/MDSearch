@@ -31,6 +31,8 @@ class SNPSelector:
         memory_monitor: MemoryMonitor,
         logger: logging.Logger,
         shutdown_checker: Optional[Callable[[], bool]] = None,
+        weight_entropy: float = 0.5,
+        weight_maf: float = 0.5,
     ):
         """Initialize SNP selector with required components.
 
@@ -39,6 +41,8 @@ class SNPSelector:
             memory_monitor: MemoryMonitor instance for tracking memory usage
             logger: Logger instance for output
             shutdown_checker: Optional function to check if shutdown was requested
+            weight_entropy: Weight for entropy component in SNP scoring (0.0 to 1.0)
+            weight_maf: Weight for MAF component in SNP scoring (0.0 to 1.0)
 
         Example:
             >>> from src.core.distance_calculator import DistanceCalculator
@@ -53,6 +57,8 @@ class SNPSelector:
         self.memory_monitor = memory_monitor
         self.logger = logger
         self.shutdown_checker = shutdown_checker
+        self.weight_entropy = weight_entropy
+        self.weight_maf = weight_maf
 
     def select_first_discriminatory_snp(
         self, vcf_data: VCFData, excluded: Optional[Set[str]] = None
@@ -86,7 +92,11 @@ class SNPSelector:
             entropy = vcf_data.snp_entropy_cache.get(sid, 0.0)
             # Use cached entropy for scoring
             entropy_score = calculate_snp_entropy_score(
-                snp_data.genotypes, maf, entropy=entropy
+                snp_data.genotypes,
+                maf,
+                self.weight_entropy,
+                self.weight_maf,
+                entropy=entropy,
             )
             candidates.append((sid, entropy_score))
 
@@ -158,7 +168,11 @@ class SNPSelector:
                 entropy = vcf_data.snp_entropy_cache.get(sid, 0.0)
                 # Use cached entropy for scoring
                 entropy_score = calculate_snp_entropy_score(
-                    snp_data.genotypes, maf, entropy=entropy
+                    snp_data.genotypes,
+                    maf,
+                    self.weight_entropy,
+                    self.weight_maf,
+                    entropy=entropy,
                 )
                 parent_nodes_info.append((sid, entropy_score))
 
