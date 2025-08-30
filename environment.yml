@@ -1,0 +1,13 @@
+name: mdsearch
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python
+  - numpy
+  - pysam
+  - psutil
+  - pytest
+  - bcftools
+  - mypy
