@@ -220,18 +220,3 @@ def test_cli_output_format_letters(tmp_path: Path):
         assert (
             produced.exists()
         ), f"expected output with extension {ext} for letter {letter}"
-
-
-# def test_cli_input_format_letters_with_fixtures(tmp_path: Path):
-#     fixtures = Path(__file__).resolve().parent / "fixtures"
-#     cases = [
-#         (fixtures / "test1_vcf_uc.vcf", "v"),
-#         (fixtures / "test1_vcf_c.vcf.gz", "z"),
-#         (fixtures / "test1_vcf_uc.bcf", "u"),
-#         (fixtures / "test1_vcf_c.bcf", "b"),
-#     ]
-#     for ivcf, letter in cases:
-#         out_prefix = tmp_path / f"fmt_{letter}"
-#         _run_cli(ivcf, out_prefix, ["--input-format", letter, "--output-format", "v"])
-#         produced = Path(f"{out_prefix}_1.vcf")
-#         assert produced.exists(), f"expected text VCF output for input format {letter}"
