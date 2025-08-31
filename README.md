@@ -1,109 +1,126 @@
-# **MDSearch**
+# MDSearch: Minimum Discriminatory SNP Set Search
 
-**MDSearch today is a major advancement over MDSearch described in [this article](https://doi.org/10.3390/agronomy14081802), featuring extensive improvements and new capabilities—so much so that it can be considered a distinct tool. If you use MDSearch in your work, please cite the original article linked above.**
+**MDSearch** is a Python tool designed to identify minimal sets of Single Nucleotide Polymorphisms (SNPs) that can discriminate between samples in a VCF (Variant Call Format) file based on a specified minimum Hamming distance. The tool is particularly useful for applications such as genetic barcoding, sample identification, and quality control in genomic studies.
 
+## Key Features
 
-**MDSearch** (**M**inimum **D**iscriminatory SNPs set **Search**) is a Python tool designed to identify minimal sets of Single Nucleotide Polymorphisms (SNPs) that can discriminate between samples in a VCF (Variant Call Format) file based on a specified minimum Hamming distance. The tool is particularly useful for applications such as genetic barcoding, sample identification, and quality control in genomic studies.
+- **Robust genotype handling**: Correctly processes missing genotypes and polyploid SNPs
+- **Customizable discrimination**: Set minimum Hamming distance between samples
+- **Multiple SNP sets**: Generate several distinct (complitely disjoint) discriminatory SNP sets
+- **Advanced scoring**: Customizable entropy and Minor Allele Frequency (MAF) weights
+- **Comprehensive output**: Human-readable SNP profiles, statistics, and VCF files
+- **Memory monitoring**: Dynamic memory usage tracking with system-aware thresholds
 
-## Description
-**Key features**
-* Correctly handles **missing genotypes** and **polyploid SNPs**
-* Customizable **minimal Hamming distance** between samples
-* Selects **core discriminatory SNP sets**
-* Generates **multiple distinct SNP sets** for validation
-* Flexible handling of **heterozygous calls** (convertible to NA)
-* **Structured logging** with text/JSON output formats
-* **Comprehensive output** with human-readable SNP profiles, run information, and statistics
-* **Advanced SNP scoring** with customizable entropy and MAF weights
-* **Unlimited mode** to find all possible disjoint SNP sets
-* **Best set detection** based on Shannon entropy for optimal chromosome distribution
+## Core Techniques
 
-## Table of Contents
-- [How It Works](#how-it-works)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Output](#output)
-- [Notes](#notes)
-- [Testing](#testing)
-- [License](#license)
+The codebase implements several sophisticated algorithms:
 
-## How it works
+- **Two-phase optimization**: Forward selection followed by backward elimination for minimal SNP sets
+- **Vectorized Hamming distance calculation**: Optimized pairwise distance computation using NumPy arrays
+- **Entropy-based SNP scoring**: Combines Shannon entropy and MAF for optimal SNP selection
+- **Incremental distance updates**: Efficient backward elimination without full set reconstruction
+- **Memory-aware processing**: Dynamic memory monitoring with graceful degradation
+- **Deterministic SNP selection**: Stable, reproducible results with tie-breaking by SNP ID
 
-⚠️ **Important Notes**    
-SNPs in the input VCF must be properly filtered before being processed with MDSearch. Typical steps include:
-- Removing or splitting multiallelic sites.
-- Removing SNPs with at least one missing genotype (optional, as MDSearch correctly handles missing data).
-- Removing SNPs with MAF (Minor Allele Frequency) ≤ 10%.
-- Removing SNPs with excessive heterozygosity.
-- Performing LD pruning.
+## Key Technologies & Libraries
 
-MDSearch employs a two-phase optimization approach:
+### Core Bioinformatics Libraries
+- **[pysam](https://pysam.readthedocs.io/)**: High-performance VCF/BCF file reading and writing
+- **[NumPy](https://numpy.org/)**: Vectorized numerical operations for genotype matrices
+- **[bcftools](https://samtools.github.io/bcftools/)**: VCF/BCF indexing and format support
 
-1. **Forward Selection Phase**  
-   Sequentially adds SNPs with highest combined entropy and MAF scores until all samples are distinguishable at the specified minimal Hamming distance. The scoring system balances information content (entropy) with allele frequency distribution (MAF) for optimal SNP selection.
+### System & Performance
+- **[psutil](https://psutil.readthedocs.io/)**: Cross-platform system and process monitoring
 
-2. **Backward Elimination Phase**  
-   Iteratively removes SNPs from the preliminary set while maintaining the required discriminative ability. Uses deterministic elimination to find minimal sets.
+### Quality
+- **[pytest](https://docs.pytest.org/)**: Comprehensive testing framework with 29+ test cases
 
-The algorithm finds minimal discriminating sets only; expansion to a user-specified size is not performed.
+## Project Structure
 
-## Requirements
+```
+MDSearch/
+├── src/                              # Core application code
+│   ├── core/                         # Core algorithms and data structures
+│   │   ├── vcf_parser.py             # VCF file parsing and validation
+│   │   ├── distance_calculator.py    # Optimized Hamming distance computation
+│   │   ├── genotype_utils.py         # Genotype conversion and utility functions
+│   │   └── snp_selector.py           # SNP selection and optimization algorithms
+│   ├── io/                           # Input/output operations
+│   │   ├── vcf_writer.py             # VCF file output with format support
+│   │   ├── summary_writer.py         # Statistical summary generation
+│   │   ├── run_info_writer.py        # Execution information and metadata
+│   │   ├── snp_profile_writer.py     # Human-readable SNP profiles
+│   │   └── structure_info_writer.py  # Output directory documentation
+│   └── utils/                        # Utility functions
+│       ├── memory_monitor.py         # Memory usage monitoring and warnings
+│       ├── logging_setup.py          # Structured logging configuration
+│       ├── indexing.py               # VCF indexing utilities
+│       └── validation.py             # Input validation functions
+├── tests/                            # Comprehensive test suite
+├── .github/                          # GitHub configuration and workflows
+├── environment.yml                   # Conda environment specification
+└── mdsearch.py                       # Main command-line interface
+```
 
-### Dependencies
-- **Python 3.8+** - Required for type hints and modern features
-- **NumPy** - For numerical operations and array handling
-- **pysam** - For VCF/BCF file reading and writing
-- **psutil** - For memory monitoring and system information
-- **bcftools** - For VCF/BCF indexing (required for compressed formats)
-- **pytest** - For running the test suite
+**Key directories:**
+- `src/core/`: Contains the core algorithms for SNP selection, distance calculation, and genotype processing
+- `src/io/`: Handles all output generation including VCF files, summaries, and human-readable profiles
+- `tests/`: Comprehensive test suite covering genotype handling, distance calculations, and CLI validation
 
-### Standard Python Libraries
-- pathlib, logging, time, json, sys, itertools, math, dataclasses, typing
+## Installation & Usage
 
-## Installation
-
-### Conda Environment (Recommended)
+### Quick Start
 ```bash
 git clone https://github.com/alermol/MDSearch.git
 cd MDSearch
 conda env create -f environment.yml
 conda activate mdsearch
+python mdsearch.py input.vcf results -md 2 -ns 3
 ```
 
-## Usage
 ### Basic Command
 ```bash
-python mdsearch.py input.vcf output_folder
+python mdsearch.py input.vcf output_folder -pl 2 -md 2 -ns 3
 ```
 
-### CLI Reference (grouped)
+This will:
+- Assume that input VCF file `input.vcf` is diploid
+- Ensure that minimum Hamming distance of 2 between samples in all final discriminatory VCF sets
+- Generate 3 distinct discriminatory SNP sets
+- Create comprehensive output in the `output_folder`
 
-Positional arguments:
+## Command Line Interface
+
+### Basic Syntax
+```bash
+python mdsearch.py IVCF OUTPUT_FOLDER [options]
+```
+
+### Positional Arguments
 - **IVCF**: Input VCF file (bi-allelic, with SNP IDs)
 - **OUTPUT_FOLDER**: Path to output folder (will be created if absent)
 
-Selection:
+### Selection Parameters
 - `-pl PLOIDY` (default: 2) — VCF ploidy
 - `-md MIN_DIST` (default: 1) — Minimal Hamming distance between samples
-- `-ns N_SETS` (default: 1) — Number of distinct SNP sets in output (0 or 'unlimited' for all possible sets)
+- `-ns N_SETS` (default: 0) — Number of distinct SNP sets in output (0 or 'unlimited' for all possible sets)
 - `-we WEIGHT_ENTROPY` (default: 0.5) — Weight for entropy component in SNP scoring (0.0 to 1.0)
 - `-wm WEIGHT_MAF` (default: 0.5) — Weight for MAF component in SNP scoring (0.0 to 1.0)
 
-Output:
+### Output Options
 - `-ch` — Convert heterozygous calls into NA
 
-IO formats:
-- `--input-format {auto,v,z,u,b}` (default: auto) — Input format (VCF/VCF.gz/BCF uncompressed/BCF compressed)
-- `--output-format {v,z,u,b}` (default: v) — Output format (VCF/VCF.gz/BCF uncompressed/BCF compressed)
+### Input/Output Formats
+- `-I {auto,v,z,u,b}` (default: auto) — Input format (VCF/VCF.gz/BCF uncompressed/BCF compressed)
+- `-O {v,z,u,b}` (default: v) — Output format (VCF/VCF.gz/BCF uncompressed/BCF compressed)
 
-Logging:
-- `--quiet` — Suppress progress output
-- `--log-level {DEBUG,INFO,WARNING,ERROR}` — Logging level
-- `--log-format {text,json}` (default: text) — Logging format
+### Logging Options
+- `-q, --quiet` — Suppress progress output
+- `-L {DEBUG,INFO,WARNING,ERROR}` — Logging level
+- `-F {text,json}` (default: text) — Logging format
 
-Misc:
-- `--version` — Show program version, commit hash, and Python version and exit
+### Information
+- `-V, --version` — Show program version, commit hash, and Python version and exit
 - `-h, --help` — Show help message and exit
 
 ### Examples
@@ -118,7 +135,7 @@ python mdsearch.py data.vcf results -pl 2 -md 2 -ch -ns 3
 python mdsearch.py data.vcf results -pl 2 -md 2 -we 0.8 -wm 0.2
 ```
 
-#### Unlimited Mode (Find All Possible Sets)
+#### Unlimited Mode (Find All Possible Disjoint SNP Sets)
 ```bash
 python mdsearch.py data.vcf results -pl 2 -md 2 -ch -ns 0
 # or
@@ -127,35 +144,29 @@ python mdsearch.py data.vcf results -pl 2 -md 2 -ch -ns unlimited
 
 #### Advanced Usage with Logging
 ```bash
-python mdsearch.py data.vcf results -md 2 -ns 3 --log-level INFO
+python mdsearch.py data.vcf results -md 2 -ns 3 -L INFO
 ```
 
 #### JSON Logging for Automated Pipelines
 ```bash
-python mdsearch.py data.vcf results --log-format json --quiet
+python mdsearch.py data.vcf results -F json -q
 ```
 
 #### BCF Format Processing
 ```bash
-python mdsearch.py input.bcf results --input-format b --output-format b
+python mdsearch.py input.bcf results -I b -O b
 ```
 
-The first command will:
-- Assume a ploidy of 2
-- Generate minimal discriminating set(s)
-- Ensure a minimum Hamming distance of 2 between samples
-- Convert heterozygous calls to NA
-- Generate 3 distinct SNP sets
+## Output Structure
 
-## Output
-Creates a comprehensive output folder structure:
+The tool creates a well-organized output directory with comprehensive analysis results:
 
 ```
 results/
 ├── mdss/                           # SNP set VCF files
 │   ├── minimal_set_1.vcf           # First minimal discriminative set
 │   ├── minimal_set_2.vcf           # Alternative minimal set
-│   ├── minimal_set_3.vcf           # Third alternative set    
+│   └── minimal_set_3.vcf           # Third alternative set
 ├── snp_profiles/                   # Human-readable SNP profiles
 │   ├── set_1_profile.txt           # Profile for set 1
 │   ├── set_2_profile.txt           # Profile for set 2
@@ -164,57 +175,101 @@ results/
 ├── run_info.txt                    # Detailed execution information
 ├── output_structure.txt            # Output organization guide
 ├── best_set.vcf                    # Optimal set with highest entropy
-└── best_set_profile.txt            # Human-readable format profile for the optimal SNP set
+└── best_set_profile.txt            # Profile for the optimal SNP set
 ```
 
+### Detailed File Descriptions
 
-### Summary TSV Contents
-The summary file includes columns:
-- `set_index`: Set number (1, 2, 3...)
-- `output_vcf`: Path to corresponding VCF file
-- `num_snps`: Number of SNPs in the set
-- `min_distance`: Achieved minimum Hamming distance
-- `shannon_entropy`: Chromosome distribution balance score
+#### `summary.tsv` - Statistical Summary
+A tab-separated values file containing comprehensive statistics for each generated SNP set:
 
-## Notes
-- Input VCF must contain SNP IDs in the third column (ID field)
-- Use `-ch` when heterozygous calls shouldn't contribute to discrimination
-- Typical minimal distances:
-  - `-md 1` for basic discrimination
-  - `-md 2-3` for more robust discrimination
-- **Logging options:**
-  - `--quiet` suppresses progress output
-  - `--log-level` controls verbosity (DEBUG, INFO, WARNING, ERROR)
-  - `--log-format json` outputs structured logs for automated pipelines
-- **SNP scoring:**
-  - `-we` controls entropy weight (information content)
-  - `-wm` controls MAF weight (allele frequency distribution)
-  - Combined scoring provides more informative SNP sets
-- **File format support:**
-  - Input formats: auto-detection, VCF (v), compressed VCF (z), uncompressed BCF (u), compressed BCF (b)
-  - Output formats: VCF (v), compressed VCF (z), uncompressed BCF (u), compressed BCF (b)
-- **Best set selection:**
-  - Automatically identifies the SNP set with highest Shannon entropy
-  - Provides optimal chromosome distribution balance
+| Column | Description |
+|--------|-------------|
+| `set_index` | 1-based index of the SNP set (1, 2, 3, ...) |
+| `output_vcf` | Path to the corresponding VCF file (e.g., "minimal_set_1.vcf") |
+| `num_snps` | Number of SNPs in the set |
+| `min_distance` | Achieved minimum Hamming distance between all sample pairs |
+| `shannon_entropy` | Shannon entropy score measuring chromosome distribution balance |
+
+The Shannon entropy indicates how well SNPs are distributed across chromosomes - higher values indicate more balanced distribution, which is often desirable for genetic studies.
+
+#### `snp_profiles/` - Human-Readable Profiles
+Each profile file (`set_N_profile.txt`) provides a compact, human-readable representation of SNP sets:
+
+**Header Section:**
+- SNP set identification and chromosome distribution summary
+- Format: `#SNP Set N Profile` and `#Chromosome Distribution: Chr1(2); Chr2(3); Chr3(1)`
+
+**Sample Profiles:**
+Each sample is represented as a line showing all SNP genotypes in the format:
+```
+Sample_name: Chr1:Position1(Genotype1) Chr2:Position2(Genotype2) ...
+```
+
+**Genotype Format:**
+- **Diploid**: `AA`, `AT`, `TT` (homozygous reference, heterozygous, homozygous alternate)
+- **Triploid**: `AAA`, `AAT`, `TTT` (no separators between alleles)
+- **Missing**: `--` (for diploid) or `---` (for triploid)
+- **Polyploid**: Concatenated alleles without separators
+
+**Example Profile Content:**
+```
+#SNP Set 1 Profile
+#Chromosome Distribution: Chr1(2); Chr2(1); Chr3(2)
+--------------------------------------------------
+Sample_001: Chr1:12345(AA) Chr1:67890(TT) Chr2:11111(AT) Chr3:22222(AA) Chr3:33333(TT)
+Sample_002: Chr1:12345(AT) Chr1:67890(AT) Chr2:11111(AA) Chr3:22222(AT) Chr3:33333(AT)
+```
+
+#### `best_set.vcf` and `best_set_profile.txt`
+The optimal SNP set automatically selected based on highest Shannon entropy:
+- `best_set.vcf`: Standard VCF format of the optimal SNP set
+- `best_set_profile.txt`: Human-readable profile of the optimal set (same format as other profiles)
+
+#### `run_info.txt` - Execution Metadata
+Comprehensive execution information including:
+- Program version and build details
+- Input file specifications and parameters
+- Output statistics and timing information
+- System memory usage and thresholds
+- Complete configuration used for the run
+
+#### `output_structure.txt` - Directory Guide
+Detailed explanation of all output files and their purposes, serving as a reference for understanding the results.
+
+## Advanced Features
+
+### Custom SNP Scoring
+```bash
+python mdsearch.py input.vcf results -we 0.8 -wm 0.2
+```
+Control the balance between entropy (`-we`) and MAF (`-wm`) components in SNP selection.
+
+### Unlimited Mode
+```bash
+python mdsearch.py input.vcf results -ns unlimited
+```
+Find all possible disjoint discriminatory SNP sets.
+
+### Structured Logging
+```bash
+python mdsearch.py input.vcf results -F json -q
+```
+Generate JSON-formatted logs for automated pipeline integration.
 
 ## Testing
-Run the test suite (make sure the `mdsearch` environment is active):
-```bash
-# Run all tests
-pytest -v
 
-# Run tests without saving VCF artifacts  
-MDSEARCH_SAVE_VCFS=0 pytest -v
+Run the comprehensive test suite:
+```bash
+pytest -v
 ```
 
-The comprehensive test suite covers:
-- Different genotype ploidy handling (including haploid)
-- Enforcing minimal Hamming distance (`-md`)
-- Correct handling of heterozygous genotypes in distance calculation (`-ch`)
-- Multiple distinct discriminative SNP sets (`-ns`)
-- Phased and unphased VCF handling
-- Multi-field FORMAT parsing (GT:DP:GQ)
-- TSV summary generation
+The test suite covers genotype handling, distance calculations, CLI validation, and VCF format compliance.
 
 ## License
+
 This project is open-source and available under the MIT License.
+
+---
+
+**Note**: MDSearch today represents a major advancement over the version described in the [original publication](https://doi.org/10.3390/agronomy14081802), featuring extensive improvements and new capabilities. If you use MDSearch in your work, please cite the original article.
