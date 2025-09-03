@@ -101,23 +101,23 @@ python mdsearch.py IVCF OUTPUT_FOLDER [options]
 - **OUTPUT_FOLDER**: Path to output folder (will be created if absent)
 
 ### Selection Parameters
-- `-pl PLOIDY` (default: 2) — VCF ploidy
-- `-md MIN_DIST` (default: 1) — Minimal Hamming distance between samples
-- `-ns N_SETS` (default: 0) — Number of distinct SNP sets in output (0 or 'unlimited' for all possible sets)
-- `-we WEIGHT_ENTROPY` (default: 0.5) — Weight for entropy component in SNP scoring (0.0 to 1.0)
-- `-wm WEIGHT_MAF` (default: 0.5) — Weight for MAF component in SNP scoring (0.0 to 1.0)
+- `-pl, --ploidy PLOIDY` (default: 2) — VCF ploidy
+- `-md, --min-distance MIN_DIST` (default: 1) — Minimal Hamming distance between samples
+- `-ns, --num-sets N_SETS` (default: 0) — Number of distinct SNP sets in output (0 or 'unlimited' for all possible sets)
+- `-we, --weight-entropy WEIGHT_ENTROPY` (default: 0.5) — Weight for entropy component in SNP scoring (0.0 to 1.0)
+- `-wm, --weight-maf WEIGHT_MAF` (default: 0.5) — Weight for MAF component in SNP scoring (0.0 to 1.0)
 
 ### Output Options
-- `-ch` — Convert heterozygous calls into NA
+- `-ch, --convert-het` — Convert heterozygous calls into NA
 
 ### Input/Output Formats
-- `-I {auto,v,z,u,b}` (default: auto) — Input format (VCF/VCF.gz/BCF uncompressed/BCF compressed)
-- `-O {v,z,u,b}` (default: v) — Output format (VCF/VCF.gz/BCF uncompressed/BCF compressed)
+- `-I, --input-format {auto,v,z,u,b}` (default: auto) — Input format (VCF/VCF.gz/BCF uncompressed/BCF compressed)
+- `-O, --output-format {v,z,u,b}` (default: v) — Output format (VCF/VCF.gz/BCF uncompressed/BCF compressed)
 
 ### Logging Options
 - `-q, --quiet` — Suppress progress output
-- `-L {DEBUG,INFO,WARNING,ERROR}` — Logging level
-- `-F {text,json}` (default: text) — Logging format
+- `-L, --log-level {DEBUG,INFO,WARNING,ERROR}` — Logging level
+- `-F, --log-format {text,json}` (default: text) — Logging format
 
 ### Information
 - `-V, --version` — Show program version, commit hash, and Python version and exit
