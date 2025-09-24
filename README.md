@@ -57,7 +57,6 @@ MDSearch/
 │       ├── indexing.py               # VCF indexing utilities
 │       └── validation.py             # Input validation functions
 ├── tests/                            # Comprehensive test suite
-├── .github/                          # GitHub configuration and workflows
 ├── environment.yml                   # Conda environment specification
 └── mdsearch.py                       # Main command-line interface
 ```
